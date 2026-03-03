@@ -1,0 +1,67 @@
+{
+  "app": {
+    "title": "PDF Digital Signature Verifier",
+    "footer": "Supports TWCA, GCA, MOICA certificates"
+  },
+  "status": {
+    "trusted": "Trusted",
+    "unknown": "Unknown Source",
+    "failed": "Verification Failed"
+  },
+  "verification": {
+    "loading": "Verifying...",
+    "noSignatures": "No digital signatures found in this document",
+    "errorTitle": "Verification Failed",
+    "retryButton": "Select Another File",
+    "verifyOther": "Verify Another File"
+  },
+  "signature": {
+    "title": "Signature",
+    "reason": "Reason",
+    "signedAt": "Signed At",
+    "unknown": "Unknown"
+  },
+  "checks": {
+    "title": "Verification Details",
+    "integrity": "Document Integrity",
+    "certificateChain": "Certificate Chain",
+    "trustRoot": "Trust Root",
+    "validity": "Validity Period",
+    "revocation": "Revocation Status",
+    "timestamp": "Timestamp",
+    "ltv": "LTV Validation"
+  },
+  "certificate": {
+    "chainTitle": "Certificate Chain",
+    "certificates": "certificate(s)",
+    "trusted": "Trusted",
+    "subject": "Subject",
+    "issuer": "Issuer",
+    "serial": "Serial Number",
+    "validity": "Validity"
+  },
+  "timestamp": {
+    "title": "Timestamp Information",
+    "time": "Time",
+    "issuer": "Issuer",
+    "hashAlgorithm": "Hash Algorithm"
+  },
+  "dropzone": {
+    "message": "Drop PDF file here to verify",
+    "clickToSelect": "or click to select file"
+  },
+  "settings": {
+    "title": "Settings",
+    "checkOnlineRevocation": "Check revocation status online",
+    "autoVerify": "Auto-verify PDFs on page",
+    "language": "Language"
+  },
+  "content": {
+    "verifySignature": "Verify Signature",
+    "verifying": "Verifying...",
+    "trusted": "Trusted",
+    "failed": "Failed",
+    "unknown": "Unknown",
+    "error": "Error"
+  }
+}

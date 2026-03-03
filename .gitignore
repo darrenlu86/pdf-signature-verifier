@@ -1,0 +1,44 @@
+# Dependencies
+node_modules/
+
+# Build output
+.output/
+.wxt/
+dist/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# Testing
+coverage/
+playwright-report/
+test-results/
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Extension packages
+*.crx
+*.xpi
+*.zip
+
+# Misc
+*.tgz
+.cache/
+
+# Sample PDFs
+PDF_Sample/

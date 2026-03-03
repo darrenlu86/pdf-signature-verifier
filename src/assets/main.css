@@ -1,0 +1,72 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply text-gray-900 bg-white;
+  }
+}
+
+@layer components {
+  .status-badge {
+    @apply inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-sm font-medium;
+  }
+
+  .status-trusted {
+    @apply bg-green-100 text-green-800;
+  }
+
+  .status-unknown {
+    @apply bg-yellow-100 text-yellow-800;
+  }
+
+  .status-failed {
+    @apply bg-red-100 text-red-800;
+  }
+
+  .card {
+    @apply bg-white border border-gray-200 rounded-lg p-4 shadow-sm;
+  }
+
+  .card-hover {
+    @apply hover:border-gray-300 hover:shadow transition-all cursor-pointer;
+  }
+
+  .btn {
+    @apply px-4 py-2 rounded-md font-medium transition-colors;
+  }
+
+  .btn-primary {
+    @apply bg-blue-600 text-white hover:bg-blue-700;
+  }
+
+  .btn-secondary {
+    @apply bg-gray-100 text-gray-700 hover:bg-gray-200;
+  }
+
+  .check-item {
+    @apply flex items-center gap-2 py-1;
+  }
+
+  .check-passed {
+    @apply text-green-600;
+  }
+
+  .check-failed {
+    @apply text-red-600;
+  }
+
+  .check-pending {
+    @apply text-gray-400;
+  }
+
+  .drop-zone {
+    @apply border-2 border-dashed border-gray-300 rounded-lg p-6 text-center;
+    @apply hover:border-blue-400 hover:bg-blue-50 transition-colors;
+  }
+
+  .drop-zone-active {
+    @apply border-blue-500 bg-blue-50;
+  }
+}

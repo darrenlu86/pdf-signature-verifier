@@ -1,0 +1,67 @@
+{
+  "app": {
+    "title": "PDF 數位簽章驗證",
+    "footer": "支援 TWCA、GCA、MOICA 憑證"
+  },
+  "status": {
+    "trusted": "文件可信",
+    "unknown": "來源未知",
+    "failed": "驗證失敗"
+  },
+  "verification": {
+    "loading": "驗證中...",
+    "noSignatures": "此文件沒有數位簽章",
+    "errorTitle": "驗證失敗",
+    "retryButton": "重新選擇檔案",
+    "verifyOther": "驗證其他檔案"
+  },
+  "signature": {
+    "title": "簽章",
+    "reason": "簽署原因",
+    "signedAt": "簽署時間",
+    "unknown": "未知"
+  },
+  "checks": {
+    "title": "驗證詳情",
+    "integrity": "文件完整性",
+    "certificateChain": "憑證鏈",
+    "trustRoot": "信任根",
+    "validity": "有效期限",
+    "revocation": "撤銷狀態",
+    "timestamp": "時戳",
+    "ltv": "LTV 驗證"
+  },
+  "certificate": {
+    "chainTitle": "憑證鏈",
+    "certificates": "個憑證",
+    "trusted": "已信任",
+    "subject": "主體",
+    "issuer": "發行者",
+    "serial": "序號",
+    "validity": "有效期"
+  },
+  "timestamp": {
+    "title": "時戳資訊",
+    "time": "時間",
+    "issuer": "發行者",
+    "hashAlgorithm": "雜湊演算法"
+  },
+  "dropzone": {
+    "message": "拖放 PDF 檔案至此處驗證",
+    "clickToSelect": "或點擊選擇檔案"
+  },
+  "settings": {
+    "title": "設定",
+    "checkOnlineRevocation": "線上查詢撤銷狀態",
+    "autoVerify": "自動驗證頁面中的 PDF",
+    "language": "語言"
+  },
+  "content": {
+    "verifySignature": "驗證簽章",
+    "verifying": "驗證中...",
+    "trusted": "可信",
+    "failed": "失敗",
+    "unknown": "未知",
+    "error": "錯誤"
+  }
+}
