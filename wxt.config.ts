@@ -27,8 +27,7 @@ export default defineConfig({
             id: 'pdftrust@darrenlu.com',
             strict_min_version: '109.0',
             data_collection_permissions: {
-              storage_synced_by_the_extension: false,
-              data_collected_by_the_extension: false,
+              required: ['none'],
             },
           },
         }
