@@ -1,4 +1,22 @@
+import { t, setLocale, detectBrowserLocale } from '@/i18n'
+import type { Locale } from '@/i18n'
+
 export default defineBackground(() => {
+  // Initialize locale
+  const initLocale = async () => {
+    try {
+      const result = await chrome.storage.local.get('pdf-verifier-settings')
+      const settings = result['pdf-verifier-settings']
+      if (settings?.language) {
+        setLocale(settings.language as Locale)
+      } else {
+        setLocale(detectBrowserLocale())
+      }
+    } catch {
+      setLocale(detectBrowserLocale())
+    }
+  }
+  initLocale()
   console.log('PDF Signature Verifier background script loaded')
 
   // Handle messages from popup and content scripts
@@ -35,7 +53,7 @@ async function handlePdfUrlVerification(
   try {
     const response = await fetch(url)
     if (!response.ok) {
-      return { error: `PDF 下載失敗: ${response.status}` }
+      return { error: t('core.misc.pdfDownloadFailed', { status: String(response.status) }) }
     }
     const buffer = await response.arrayBuffer()
     const { verifyPdfSignatures } = await import('@/core/verifier')

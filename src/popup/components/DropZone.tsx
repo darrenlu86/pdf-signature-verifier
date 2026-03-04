@@ -1,4 +1,5 @@
 import { useState, useCallback, useRef } from 'react'
+import { t } from '@/i18n'
 import { UploadIcon } from './icons'
 
 interface DropZoneProps {
@@ -83,10 +84,10 @@ export function DropZone({ onFileSelect, disabled = false }: DropZoneProps) {
         <UploadIcon className="w-8 h-8 text-gray-400" />
       </div>
       <div className="text-sm text-gray-600">
-        拖放 PDF 檔案至此處驗證
+        {t('dropzone.message')}
       </div>
       <div className="text-xs text-gray-400 mt-1">
-        或點擊選擇檔案
+        {t('dropzone.clickToSelect')}
       </div>
     </div>
   )

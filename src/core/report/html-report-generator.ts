@@ -1,9 +1,10 @@
-import type { VerificationResult, SignatureResult, CertificateInfo } from '@/types'
+import type { VerificationResult, SignatureResult, CertificateInfo, CheckResult } from '@/types'
+import { t, getLocale, resolveCheck, resolveSummary } from '@/i18n'
 
 function formatDate(date: Date | null | undefined): string {
   if (!date) return '-'
   try {
-    return new Date(date).toLocaleString('zh-TW', {
+    return new Date(date).toLocaleString(getLocale(), {
       year: 'numeric',
       month: '2-digit',
       day: '2-digit',
@@ -50,11 +51,11 @@ function statusLabel(status: string): string {
 function statusLabelZh(status: string): string {
   switch (status) {
     case 'trusted':
-      return '可信任'
+      return t('report.statusTrusted')
     case 'failed':
-      return '驗證失敗'
+      return t('report.statusFailed')
     default:
-      return '未知'
+      return t('report.statusUnknown')
   }
 }
 
@@ -65,13 +66,14 @@ function checkIcon(passed: boolean): string {
   return '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="#dc2626" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;"><path d="M4 4l8 8M12 4l-8 8"/></svg>'
 }
 
-function renderCheckRow(label: string, check: { passed: boolean; message: string; details?: string } | null): string {
+function renderCheckRow(label: string, check: CheckResult | null): string {
   if (!check) return ''
+  const resolved = resolveCheck(check)
   return `
     <tr>
       <td style="padding:6px 12px;border:1px solid #e5e7eb;">${checkIcon(check.passed)}</td>
       <td style="padding:6px 12px;border:1px solid #e5e7eb;">${escapeHtml(label)}</td>
-      <td style="padding:6px 12px;border:1px solid #e5e7eb;">${escapeHtml(check.message)}${check.details ? `<br><span style="color:#6b7280;font-size:0.85em;">${escapeHtml(check.details)}</span>` : ''}</td>
+      <td style="padding:6px 12px;border:1px solid #e5e7eb;">${escapeHtml(resolved.message)}${resolved.details ? `<br><span style="color:#6b7280;font-size:0.85em;">${escapeHtml(resolved.details)}</span>` : ''}</td>
     </tr>`
 }
 
@@ -87,15 +89,15 @@ function renderCertRow(cert: CertificateInfo): string {
 }
 
 function renderCertTable(certs: CertificateInfo[]): string {
-  if (certs.length === 0) return '<p style="color:#6b7280;">無憑證鏈資訊</p>'
+  if (certs.length === 0) return `<p style="color:#6b7280;">${t('report.noCertChain')}</p>`
 
   const header = `
     <div style="display:flex;gap:8px;background:#f3f4f6;padding:6px 12px;border:1px solid #e5e7eb;font-size:0.85em;font-weight:600;">
-      <div style="flex:2;">主體</div>
-      <div style="flex:2;">簽發者</div>
-      <div style="flex:1;">生效日</div>
-      <div style="flex:1;">到期日</div>
-      <div style="width:60px;text-align:center;">信任</div>
+      <div style="flex:2;">${t('report.certSubject')}</div>
+      <div style="flex:2;">${t('report.certIssuer')}</div>
+      <div style="flex:1;">${t('report.certNotBefore')}</div>
+      <div style="flex:1;">${t('report.certNotAfter')}</div>
+      <div style="width:60px;text-align:center;">${t('report.certTrust')}</div>
     </div>`
 
   const rows = certs.map((cert) => renderCertRow(cert)).join('')
@@ -108,13 +110,13 @@ function renderSignature(sig: SignatureResult, index: number): string {
 
   // Each check row is its own block to avoid cutting
   const checkRows = [
-    { label: '完整性', check: checks.integrity },
-    { label: '憑證鏈', check: checks.certificateChain },
-    { label: '信任根', check: checks.trustRoot },
-    { label: '有效期', check: checks.validity },
-    { label: '撤銷狀態', check: checks.revocation },
-    { label: '時間戳記', check: checks.timestamp },
-    { label: '長期驗證', check: checks.ltv },
+    { label: t('report.integrity'), check: checks.integrity },
+    { label: t('report.certificateChain'), check: checks.certificateChain },
+    { label: t('report.trustRoot'), check: checks.trustRoot },
+    { label: t('report.validityPeriod'), check: checks.validity },
+    { label: t('report.revocationStatus'), check: checks.revocation },
+    { label: t('report.timestampLabel'), check: checks.timestamp },
+    { label: t('report.longTermValidation'), check: checks.ltv },
   ]
     .filter(({ check }) => check !== null)
     .map(({ label, check }) => renderCheckRow(label, check))
@@ -123,32 +125,32 @@ function renderSignature(sig: SignatureResult, index: number): string {
   return `
     <div class="sig-section">
       <h3 style="font-size:1.1em;margin:0 0 12px 0;padding-bottom:8px;border-bottom:2px solid ${statusColor(sig.status)};">
-        簽章 #${index + 1}
+        ${t('report.signatureNumber', { index: index + 1 })}
         <span style="float:right;color:${statusColor(sig.status)};font-weight:600;">${statusLabelZh(sig.status)}</span>
       </h3>
 
       <div class="sig-meta">
         <table style="width:100%;border-collapse:collapse;margin-bottom:12px;">
           <tr>
-            <td style="padding:4px 0;color:#6b7280;width:100px;">簽署者</td>
+            <td style="padding:4px 0;color:#6b7280;width:100px;">${t('report.signer')}</td>
             <td style="padding:4px 0;font-weight:500;">${escapeHtml(sig.signerName)}</td>
           </tr>
           <tr>
-            <td style="padding:4px 0;color:#6b7280;">簽署時間</td>
+            <td style="padding:4px 0;color:#6b7280;">${t('report.signedTime')}</td>
             <td style="padding:4px 0;">${formatDate(sig.signedAt)}</td>
           </tr>
-          ${sig.reason ? `<tr><td style="padding:4px 0;color:#6b7280;">簽署原因</td><td style="padding:4px 0;">${escapeHtml(sig.reason)}</td></tr>` : ''}
-          ${sig.location ? `<tr><td style="padding:4px 0;color:#6b7280;">簽署地點</td><td style="padding:4px 0;">${escapeHtml(sig.location)}</td></tr>` : ''}
+          ${sig.reason ? `<tr><td style="padding:4px 0;color:#6b7280;">${t('report.signReason')}</td><td style="padding:4px 0;">${escapeHtml(sig.reason)}</td></tr>` : ''}
+          ${sig.location ? `<tr><td style="padding:4px 0;color:#6b7280;">${t('report.signLocation')}</td><td style="padding:4px 0;">${escapeHtml(sig.location)}</td></tr>` : ''}
         </table>
       </div>
 
-      <h4 style="font-size:0.95em;margin:16px 0 8px 0;">驗證結果</h4>
+      <h4 style="font-size:0.95em;margin:16px 0 8px 0;">${t('report.verificationResult')}</h4>
       <table class="check-table" style="width:100%;border-collapse:collapse;font-size:0.9em;">
         <thead>
           <tr style="background:#f3f4f6;">
             <th style="padding:6px 12px;border:1px solid #e5e7eb;width:30px;"></th>
-            <th style="padding:6px 12px;border:1px solid #e5e7eb;text-align:left;width:120px;">項目</th>
-            <th style="padding:6px 12px;border:1px solid #e5e7eb;text-align:left;">說明</th>
+            <th style="padding:6px 12px;border:1px solid #e5e7eb;text-align:left;width:120px;">${t('report.checkItem')}</th>
+            <th style="padding:6px 12px;border:1px solid #e5e7eb;text-align:left;">${t('report.checkDescription')}</th>
           </tr>
         </thead>
         <tbody>
@@ -156,30 +158,30 @@ function renderSignature(sig: SignatureResult, index: number): string {
         </tbody>
       </table>
 
-      <h4 style="font-size:0.95em;margin:16px 0 8px 0;">憑證鏈</h4>
+      <h4 style="font-size:0.95em;margin:16px 0 8px 0;">${t('report.certChainSection')}</h4>
       ${renderCertTable(sig.certificateChain)}
 
       ${
         sig.timestampInfo
           ? `
         <div class="ts-section">
-          <h4 style="font-size:0.95em;margin:16px 0 8px 0;">時間戳記資訊</h4>
+          <h4 style="font-size:0.95em;margin:16px 0 8px 0;">${t('report.timestampInfo')}</h4>
           <table style="width:100%;border-collapse:collapse;font-size:0.9em;">
             <tr>
-              <td style="padding:4px 0;color:#6b7280;width:120px;">時間戳記時間</td>
+              <td style="padding:4px 0;color:#6b7280;width:120px;">${t('report.timestampTime')}</td>
               <td style="padding:4px 0;">${formatDate(sig.timestampInfo.time)}</td>
             </tr>
             <tr>
-              <td style="padding:4px 0;color:#6b7280;">簽發者</td>
+              <td style="padding:4px 0;color:#6b7280;">${t('report.timestampIssuer')}</td>
               <td style="padding:4px 0;">${escapeHtml(sig.timestampInfo.issuer)}</td>
             </tr>
             <tr>
-              <td style="padding:4px 0;color:#6b7280;">雜湊演算法</td>
+              <td style="padding:4px 0;color:#6b7280;">${t('report.timestampHashAlg')}</td>
               <td style="padding:4px 0;">${escapeHtml(sig.timestampInfo.hashAlgorithm)}</td>
             </tr>
             <tr>
-              <td style="padding:4px 0;color:#6b7280;">驗證狀態</td>
-              <td style="padding:4px 0;">${sig.timestampInfo.isValid ? checkIcon(true) + ' 有效' : checkIcon(false) + ' 無效'}</td>
+              <td style="padding:4px 0;color:#6b7280;">${t('report.timestampStatus')}</td>
+              <td style="padding:4px 0;">${sig.timestampInfo.isValid ? checkIcon(true) + ' ' + t('report.timestampValid') : checkIcon(false) + ' ' + t('report.timestampInvalid')}</td>
             </tr>
           </table>
         </div>`
@@ -195,11 +197,11 @@ export function generateVerificationReport(result: VerificationResult): string {
   const signaturesHtml = result.signatures.map((sig, i) => renderSignature(sig, i)).join('')
 
   return `<!DOCTYPE html>
-<html lang="zh-TW">
+<html lang="${getLocale()}"
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>PDF 數位簽章驗證報告 - ${escapeHtml(result.fileName)}</title>
+  <title>${t('report.title')} - ${escapeHtml(result.fileName)}</title>
   <style>
     @media print {
       body { margin: 0; padding: 20px; }
@@ -236,22 +238,22 @@ export function generateVerificationReport(result: VerificationResult): string {
 </head>
 <body>
   <div style="text-align:center;margin-bottom:32px;">
-    <h1>PDF 數位簽章驗證報告</h1>
-    <p style="color:#6b7280;margin:8px 0 0 0;font-size:0.9em;">PDF Digital Signature Verification Report</p>
+    <h1>${t('report.title')}</h1>
+    <p style="color:#6b7280;margin:8px 0 0 0;font-size:0.9em;">${t('report.subtitle')}</p>
   </div>
 
   <div class="summary-box" style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;padding:16px 20px;margin-bottom:24px;">
     <table style="width:100%;border-collapse:collapse;">
       <tr>
-        <td style="padding:4px 0;color:#6b7280;width:100px;">檔案名稱</td>
+        <td style="padding:4px 0;color:#6b7280;width:100px;">${t('report.fileName')}</td>
         <td style="padding:4px 0;font-weight:500;">${escapeHtml(result.fileName)}</td>
       </tr>
       <tr>
-        <td style="padding:4px 0;color:#6b7280;">驗證時間</td>
+        <td style="padding:4px 0;color:#6b7280;">${t('report.verifyTime')}</td>
         <td style="padding:4px 0;">${now}</td>
       </tr>
       <tr>
-        <td style="padding:4px 0;color:#6b7280;">總體狀態</td>
+        <td style="padding:4px 0;color:#6b7280;">${t('report.overallStatus')}</td>
         <td style="padding:4px 0;">
           <span style="display:inline-block;padding:2px 12px;border-radius:4px;color:#fff;background:${color};font-weight:600;font-size:0.9em;">
             ${statusLabel(result.status)} - ${statusLabelZh(result.status)}
@@ -259,22 +261,22 @@ export function generateVerificationReport(result: VerificationResult): string {
         </td>
       </tr>
       <tr>
-        <td style="padding:4px 0;color:#6b7280;">簽章數量</td>
+        <td style="padding:4px 0;color:#6b7280;">${t('report.signatureCount')}</td>
         <td style="padding:4px 0;">${result.signatures.length}</td>
       </tr>
       <tr>
-        <td style="padding:4px 0;color:#6b7280;">摘要</td>
-        <td style="padding:4px 0;">${escapeHtml(result.summary)}</td>
+        <td style="padding:4px 0;color:#6b7280;">${t('report.summary')}</td>
+        <td style="padding:4px 0;">${escapeHtml(resolveSummary(result))}</td>
       </tr>
     </table>
   </div>
 
-  <h2>簽章詳細資訊</h2>
+  <h2>${t('report.signatureDetails')}</h2>
   ${signaturesHtml}
 
   <div style="margin-top:40px;padding-top:16px;border-top:1px solid #e5e7eb;text-align:center;color:#9ca3af;font-size:0.8em;">
-    <p>報告產生時間：${now}</p>
-    <p>由 PDF 數位簽章驗證器 產生</p>
+    <p>${t('report.reportGenTime', { time: now })}</p>
+    <p>${t('report.reportGenBy')}</p>
   </div>
 
 </body>

@@ -7,6 +7,7 @@ import type {
   CrlInfo,
 } from '@/types'
 import { createPassedCheck, createFailedCheck } from '@/types'
+import { t } from '@/i18n'
 import {
   isLtvComplete,
   getEmbeddedRevocationStats,
@@ -74,33 +75,39 @@ export function checkLtvCompleteness(
 
   if (!hasLtv && !hasTimestamp) {
     check = createFailedCheck(
-      '無 LTV 資訊',
-      '文件缺少內嵌撤銷資料及時戳'
+      t('core.ltv.noLtvInfo'),
+      t('core.ltv.noLtvInfoDetails'),
+      { key: 'core.ltv.noLtvInfo', detailsKey: 'core.ltv.noLtvInfoDetails' }
     )
   } else if (hasLtv && completeness.complete && hasTimestamp) {
     check = createPassedCheck(
-      'LTV 簽章完整',
-      '文件可進行長期驗證'
+      t('core.ltv.ltvComplete'),
+      t('core.ltv.canLongTermVerify'),
+      { key: 'core.ltv.ltvComplete', detailsKey: 'core.ltv.canLongTermVerify' }
     )
   } else if (hasLtv && completeness.complete) {
     check = createPassedCheck(
-      '已包含 LTV 資訊',
-      '已內嵌撤銷資料，但無時戳'
+      t('core.ltv.hasLtvInfo'),
+      t('core.ltv.hasRevocationNoTimestamp'),
+      { key: 'core.ltv.hasLtvInfo', detailsKey: 'core.ltv.hasRevocationNoTimestamp' }
     )
   } else if (hasLtv && !completeness.complete) {
     check = createFailedCheck(
-      'LTV 資訊不完整',
-      `缺少：${completeness.missing.join(', ')}`
+      t('core.ltv.ltvIncomplete'),
+      t('core.ltv.missing', { items: completeness.missing.join(', ') }),
+      { key: 'core.ltv.ltvIncomplete', detailsKey: 'core.ltv.missing', detailsParams: { items: completeness.missing.join(', ') } }
     )
   } else if (hasTimestamp && !hasLtv) {
     check = createFailedCheck(
-      '有時戳但無撤銷資料',
-      '長期驗證可能失敗'
+      t('core.ltv.hasTimestampNoRevocation'),
+      t('core.ltv.longTermMayFail'),
+      { key: 'core.ltv.hasTimestampNoRevocation', detailsKey: 'core.ltv.longTermMayFail' }
     )
   } else {
     check = createFailedCheck(
-      'LTV 檢查失敗',
-      '無法判定 LTV 狀態'
+      t('core.ltv.ltvCheckFailed'),
+      t('core.ltv.cannotDetermine'),
+      { key: 'core.ltv.ltvCheckFailed', detailsKey: 'core.ltv.cannotDetermine' }
     )
   }
 
@@ -123,14 +130,14 @@ export function canValidateAtDate(
   if (!ltvResult.hasLtv) {
     return {
       valid: false,
-      reason: '無內嵌撤銷資訊',
+      reason: t('core.ltv.noEmbeddedRevocation'),
     }
   }
 
   if (!ltvResult.details.hasTimestamp) {
     return {
       valid: false,
-      reason: '無時戳可確認簽署時間',
+      reason: t('core.ltv.noTimestampForTime'),
     }
   }
 
@@ -139,27 +146,27 @@ export function canValidateAtDate(
   if (from && targetDate < from) {
     return {
       valid: false,
-      reason: '目標日期早於撤銷資訊有效期',
+      reason: t('core.ltv.targetBeforeValidity'),
     }
   }
 
   if (until && targetDate > until) {
     return {
       valid: false,
-      reason: '撤銷資訊已過期',
+      reason: t('core.ltv.revocationExpired'),
     }
   }
 
   if (!ltvResult.isComplete) {
     return {
       valid: false,
-      reason: `缺少：${ltvResult.details.missingItems.join('、')}`,
+      reason: t('core.ltv.missing', { items: ltvResult.details.missingItems.join(', ') }),
     }
   }
 
   return {
     valid: true,
-    reason: '簽章可於目標日期驗證',
+    reason: t('core.ltv.canValidateAtDate'),
   }
 }
 
@@ -168,14 +175,14 @@ export function canValidateAtDate(
  */
 export function getLtvStatusText(ltvResult: LtvCheckResult): string {
   if (ltvResult.isComplete) {
-    return 'LTV 已啟用'
+    return t('core.ltv.ltvEnabled')
   }
 
   if (ltvResult.hasLtv) {
-    return 'LTV 部分啟用'
+    return t('core.ltv.ltvPartial')
   }
 
-    return '未啟用 LTV'
+    return t('core.ltv.ltvNotEnabled')
 }
 
 /**
@@ -185,29 +192,29 @@ export function getLtvDetailsText(ltvResult: LtvCheckResult): string[] {
   const lines: string[] = []
 
   if (ltvResult.details.hasTimestamp) {
-    lines.push('[OK] 已包含時戳')
+    lines.push(t('core.ltv.hasTimestamp'))
   } else {
-    lines.push('[FAIL] 無時戳')
+    lines.push(t('core.ltv.noTimestamp'))
   }
 
   if (ltvResult.details.hasOcsp) {
-    lines.push(`[OK] 內嵌 ${ltvResult.details.ocspCount} 個 OCSP 回應`)
+    lines.push(t('core.ltv.embeddedOcsp', { count: ltvResult.details.ocspCount }))
   }
 
   if (ltvResult.details.hasCrl) {
-    lines.push(`[OK] 內嵌 ${ltvResult.details.crlCount} 個 CRL`)
+    lines.push(t('core.ltv.embeddedCrl', { count: ltvResult.details.crlCount }))
   }
 
   if (!ltvResult.details.hasOcsp && !ltvResult.details.hasCrl) {
-    lines.push('[FAIL] 無內嵌撤銷資料')
+    lines.push(t('core.ltv.noEmbeddedRevocationData'))
   }
 
   if (ltvResult.details.missingItems.length > 0) {
-    lines.push(`缺少：${ltvResult.details.missingItems.join('、')}`)
+    lines.push(t('core.ltv.missing', { items: ltvResult.details.missingItems.join(', ') }))
   }
 
   if (ltvResult.details.validityWindow.until) {
-    lines.push(`有效至：${ltvResult.details.validityWindow.until.toLocaleDateString()}`)
+    lines.push(t('core.ltv.validUntil', { date: ltvResult.details.validityWindow.until.toLocaleDateString() }))
   }
 
   return lines
@@ -225,7 +232,7 @@ export function canTrustExpiredWithLtv(
   if (new Date() <= certificate.notAfter) {
     return {
       trusted: true,
-      reason: '憑證未過期',
+      reason: t('core.ltv.certNotExpired'),
     }
   }
 
@@ -233,7 +240,7 @@ export function canTrustExpiredWithLtv(
   if (!timestampInfo || !timestampInfo.time) {
     return {
       trusted: false,
-      reason: '無時戳可證明簽署時間',
+      reason: t('core.ltv.noTimestampForProof'),
     }
   }
 
@@ -241,7 +248,7 @@ export function canTrustExpiredWithLtv(
   if (timestampInfo.time < certificate.notBefore || timestampInfo.time > certificate.notAfter) {
     return {
       trusted: false,
-      reason: '時戳不在憑證有效期間內',
+      reason: t('core.ltv.timestampOutsideValidity'),
     }
   }
 
@@ -249,12 +256,12 @@ export function canTrustExpiredWithLtv(
   if (!ltvResult.isComplete) {
     return {
       trusted: false,
-      reason: 'LTV 資訊不完整',
+      reason: t('core.ltv.ltvInfoIncomplete'),
     }
   }
 
   return {
     trusted: true,
-    reason: '簽章於憑證有效期間內建立（經 LTV 驗證）',
+    reason: t('core.ltv.signedWithinValidity'),
   }
 }

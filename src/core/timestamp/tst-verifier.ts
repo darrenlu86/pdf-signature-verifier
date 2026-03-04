@@ -3,6 +3,7 @@ import * as pkijs from 'pkijs'
 import type { TimestampInfo, CheckResult, ParsedCertificate } from '@/types'
 import { createPassedCheck, createFailedCheck } from '@/types'
 import { parseCertificate } from '../certificate/cert-utils'
+import { t } from '@/i18n'
 
 const { ContentInfo, SignedData, Certificate } = pkijs
 
@@ -41,7 +42,11 @@ export async function verifyTimestamp(
       return {
         valid: false,
         info: null,
-        check: createFailedCheck('無法解析時戳 ASN.1'),
+        check: createFailedCheck(
+          t('core.timestampVerifier.cannotParseAsn1'),
+          undefined,
+          { key: 'core.timestampVerifier.cannotParseAsn1' }
+        ),
       }
     }
 
@@ -51,7 +56,11 @@ export async function verifyTimestamp(
       return {
         valid: false,
         info: null,
-        check: createFailedCheck('時戳非 SignedData 格式'),
+        check: createFailedCheck(
+          t('core.timestampVerifier.notSignedData'),
+          undefined,
+          { key: 'core.timestampVerifier.notSignedData' }
+        ),
       }
     }
 
@@ -63,7 +72,11 @@ export async function verifyTimestamp(
       return {
         valid: false,
         info: null,
-        check: createFailedCheck('時戳中無 TSTInfo'),
+        check: createFailedCheck(
+          t('core.timestampVerifier.noTstInfo'),
+          undefined,
+          { key: 'core.timestampVerifier.noTstInfo' }
+        ),
       }
     }
 
@@ -74,7 +87,11 @@ export async function verifyTimestamp(
       return {
         valid: false,
         info: null,
-        check: createFailedCheck('無法解析 TSTInfo'),
+        check: createFailedCheck(
+          t('core.timestampVerifier.cannotParseTstInfo'),
+          undefined,
+          { key: 'core.timestampVerifier.cannotParseTstInfo' }
+        ),
       }
     }
 
@@ -87,8 +104,9 @@ export async function verifyTimestamp(
         valid: false,
         info,
         check: createFailedCheck(
-          '時戳訊息摘要不符',
-          '時戳並非針對此資料建立'
+          t('core.timestampVerifier.digestMismatch'),
+          t('core.timestampVerifier.digestMismatchDetails'),
+          { key: 'core.timestampVerifier.digestMismatch', detailsKey: 'core.timestampVerifier.digestMismatchDetails' }
         ),
       }
     }
@@ -109,8 +127,9 @@ export async function verifyTimestamp(
         valid: true,
         info: { ...info, isValid: true },
         check: createPassedCheck(
-          '時戳已驗證',
-          `時間：${info.time.toISOString()}（摘要比對通過）`
+          t('core.timestampVerifier.verifiedWithDigest'),
+          t('core.timestampVerifier.timeWithDigest', { time: info.time.toISOString() }),
+          { key: 'core.timestampVerifier.verifiedWithDigest', detailsKey: 'core.timestampVerifier.timeWithDigest', detailsParams: { time: info.time.toISOString() } }
         ),
       }
     }
@@ -119,8 +138,9 @@ export async function verifyTimestamp(
       valid: true,
       info,
       check: createPassedCheck(
-        '時戳已驗證',
-        `時間：${info.time.toISOString()}`
+        t('core.timestampVerifier.verifiedWithDigest'),
+        t('core.timestampVerifier.verifiedTime', { time: info.time.toISOString() }),
+        { key: 'core.timestampVerifier.verifiedWithDigest', detailsKey: 'core.timestampVerifier.verifiedTime', detailsParams: { time: info.time.toISOString() } }
       ),
     }
   } catch (error) {
@@ -128,8 +148,9 @@ export async function verifyTimestamp(
       valid: false,
       info: null,
       check: createFailedCheck(
-        '時戳驗證錯誤',
-        error instanceof Error ? error.message : '未知錯誤'
+        t('core.timestampVerifier.verificationError'),
+        error instanceof Error ? error.message : t('core.error.unknownError'),
+        { key: 'core.timestampVerifier.verificationError' }
       ),
     }
   }
@@ -357,12 +378,12 @@ async function getTsaInfoFromSignedData(
 ): Promise<{ name: string; certificate: ParsedCertificate | null }> {
   try {
     if (!signedData.certificates || signedData.certificates.length === 0) {
-      return { name: '未知 TSA', certificate: null }
+      return { name: t('core.timestampVerifier.unknownTsa'), certificate: null }
     }
 
     const tsaCert = signedData.certificates[0]
     if (!(tsaCert instanceof Certificate)) {
-      return { name: '未知 TSA', certificate: null }
+      return { name: t('core.timestampVerifier.unknownTsa'), certificate: null }
     }
 
     const parsed = await parseCertificate(tsaCert)
@@ -370,7 +391,7 @@ async function getTsaInfoFromSignedData(
 
     return { name, certificate: parsed }
   } catch {
-    return { name: '未知 TSA', certificate: null }
+    return { name: t('core.timestampVerifier.unknownTsa'), certificate: null }
   }
 }
 
@@ -380,7 +401,7 @@ export async function getTsaInfo(
   try {
     const asn1 = asn1js.fromBER(timestampData.buffer)
     if (asn1.offset === -1) {
-      return { name: '未知 TSA', certificate: null }
+      return { name: t('core.timestampVerifier.unknownTsa'), certificate: null }
     }
 
     const contentInfo = new ContentInfo({ schema: asn1.result })
@@ -388,7 +409,7 @@ export async function getTsaInfo(
 
     return getTsaInfoFromSignedData(signedData)
   } catch {
-    return { name: '未知 TSA', certificate: null }
+    return { name: t('core.timestampVerifier.unknownTsa'), certificate: null }
   }
 }
 

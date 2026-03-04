@@ -1,6 +1,7 @@
 import { useState, useCallback } from 'react'
 import type { VerificationResult } from '@/types'
 import { verifyPdfSignatures, type VerificationOptions } from '@/core/verifier'
+import { t } from '@/i18n'
 
 export interface UseVerificationReturn {
   result: VerificationResult | null
@@ -29,7 +30,7 @@ export function useVerification(): UseVerificationReturn {
       )
       setResult(verificationResult)
     } catch (err) {
-      const message = err instanceof Error ? err.message : '驗證過程發生錯誤'
+      const message = err instanceof Error ? err.message : t('core.misc.verificationProcessError')
       setError(message)
     } finally {
       setIsLoading(false)

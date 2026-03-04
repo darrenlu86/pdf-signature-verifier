@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import type { CertificateInfo } from '@/types'
+import { t, getLocale } from '@/i18n'
 import { DocumentIcon, LockIcon, ChainIcon, CheckIcon, ChevronRightIcon, ChevronDownIcon } from './icons'
 
 interface CertificateChainProps {
@@ -14,7 +15,7 @@ export function CertificateChain({ certificates }: CertificateChainProps) {
   return (
     <div>
       <div className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-2">
-        憑證鏈詳情
+        {t('certificate.chainDetails')}
       </div>
       <div className="space-y-1">
         {certificates.map((cert, index) => (
@@ -46,10 +47,10 @@ function CertificateItem({ certificate, index, total }: CertificateItemProps) {
   const Icon = isEndEntity ? DocumentIcon : isRoot ? LockIcon : ChainIcon
 
   const roleLabel = isRoot
-    ? '根 CA'
+    ? t('certificate.roleRoot')
     : isIntermediate
-      ? '中間 CA'
-      : '簽署者憑證'
+      ? t('certificate.roleIntermediate')
+      : t('certificate.roleEndEntity')
 
   const isSelfSigned = certificate.subject === certificate.issuer
 
@@ -59,7 +60,7 @@ function CertificateItem({ certificate, index, total }: CertificateItemProps) {
   }
 
   const formatDate = (date: Date) => {
-    return date.toLocaleDateString('zh-TW', {
+    return date.toLocaleDateString(getLocale(), {
       year: 'numeric',
       month: '2-digit',
       day: '2-digit',
@@ -93,7 +94,7 @@ function CertificateItem({ certificate, index, total }: CertificateItemProps) {
 
           {isRoot && isSelfSigned && (
             <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-50 text-blue-600 flex-shrink-0">
-              自簽
+              {t('certificate.selfSigned')}
             </span>
           )}
 
@@ -111,21 +112,21 @@ function CertificateItem({ certificate, index, total }: CertificateItemProps) {
           <div className="ml-8 mb-2 p-3 bg-gray-50 rounded-lg text-xs space-y-2 border border-gray-100">
             {/* Subject */}
             <div>
-              <div className="text-gray-400 mb-0.5">主體</div>
+              <div className="text-gray-400 mb-0.5">{t('certificate.subject')}</div>
               <div className="text-gray-900 font-medium">{getCN(certificate.subject)}</div>
               <div className="text-gray-500 text-[10px] break-all">{certificate.subject}</div>
             </div>
 
             {/* Issuer */}
             <div>
-              <div className="text-gray-400 mb-0.5">發行者</div>
+              <div className="text-gray-400 mb-0.5">{t('certificate.issuer')}</div>
               <div className="text-gray-900 font-medium">{getCN(certificate.issuer)}</div>
               <div className="text-gray-500 text-[10px] break-all">{certificate.issuer}</div>
             </div>
 
             {/* Serial number - full, not truncated */}
             <div>
-              <div className="text-gray-400 mb-0.5">序號</div>
+              <div className="text-gray-400 mb-0.5">{t('certificate.serial')}</div>
               <div className="text-gray-800 font-mono text-[10px] break-all select-all">
                 {certificate.serialNumber}
               </div>
@@ -133,16 +134,16 @@ function CertificateItem({ certificate, index, total }: CertificateItemProps) {
 
             {/* Validity period */}
             <div>
-              <div className="text-gray-400 mb-0.5">有效期</div>
+              <div className="text-gray-400 mb-0.5">{t('certificate.validity')}</div>
               <div className="text-gray-800">
-                {formatDate(certificate.notBefore)} 至 {formatDate(certificate.notAfter)}
+                {t('core.misc.validityTo', { from: formatDate(certificate.notBefore), to: formatDate(certificate.notAfter) })}
               </div>
             </div>
 
             {/* Fingerprint */}
             {certificate.fingerprint && (
               <div>
-                <div className="text-gray-400 mb-0.5">指紋</div>
+                <div className="text-gray-400 mb-0.5">{t('certificate.fingerprint')}</div>
                 <div className="text-gray-800 font-mono text-[10px] break-all select-all">
                   {certificate.fingerprint}
                 </div>
@@ -152,7 +153,7 @@ function CertificateItem({ certificate, index, total }: CertificateItemProps) {
             {/* Key Usage */}
             {certificate.keyUsage && certificate.keyUsage.length > 0 && (
               <div>
-                <div className="text-gray-400 mb-0.5">金鑰用途</div>
+                <div className="text-gray-400 mb-0.5">{t('certificate.keyUsage')}</div>
                 <div className="text-gray-800 text-[10px]">
                   {certificate.keyUsage.join(', ')}
                 </div>
@@ -162,7 +163,7 @@ function CertificateItem({ certificate, index, total }: CertificateItemProps) {
             {/* Extended Key Usage */}
             {certificate.extKeyUsage && certificate.extKeyUsage.length > 0 && (
               <div>
-                <div className="text-gray-400 mb-0.5">延伸金鑰用途</div>
+                <div className="text-gray-400 mb-0.5">{t('certificate.extKeyUsage')}</div>
                 <div className="text-gray-800 text-[10px]">
                   {certificate.extKeyUsage.join(', ')}
                 </div>
@@ -173,7 +174,7 @@ function CertificateItem({ certificate, index, total }: CertificateItemProps) {
             {certificate.isTrusted && (
               <div className="flex items-center gap-1 text-green-600 pt-1 border-t border-gray-200">
                 <CheckIcon className="inline-block" />
-                <span>此憑證存在於信任儲存庫中</span>
+                <span>{t('certificate.inTrustStore')}</span>
               </div>
             )}
           </div>

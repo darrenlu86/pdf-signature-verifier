@@ -4,6 +4,7 @@ import type {
   ParsedCertificate,
   CrlInfo,
 } from '@/types'
+import { t } from '@/i18n'
 import { parseEmbeddedOcspResponse } from './ocsp-client'
 import { parseEmbeddedCrl, isSerialInCrl, isCrlValid } from './crl-client'
 
@@ -19,7 +20,8 @@ export function checkEmbeddedRevocationStatus(
       status: 'unknown',
       checkedAt: new Date(),
       method: 'embedded',
-      details: 'PDF 中無內嵌撤銷資訊',
+      details: t('core.revocation.noEmbeddedInfo'),
+      detailsI18nKey: 'core.revocation.noEmbeddedInfo',
     }
   }
 
@@ -57,7 +59,9 @@ export function checkEmbeddedRevocationStatus(
           status: 'revoked',
           checkedAt: new Date(),
           method: 'embedded',
-          details: `憑證存在於內嵌 CRL 撤銷清單中（簽發者：${crlInfo.issuer}）`,
+          details: t('core.revocation.inEmbeddedCrl', { issuer: crlInfo.issuer }),
+          detailsI18nKey: 'core.revocation.inEmbeddedCrl',
+          detailsI18nParams: { issuer: crlInfo.issuer },
         }
       }
 
@@ -66,7 +70,9 @@ export function checkEmbeddedRevocationStatus(
         status: 'good',
         checkedAt: new Date(),
         method: 'embedded',
-        details: `憑證未在內嵌 CRL 撤銷清單中（簽發者：${crlInfo.issuer}）`,
+        details: t('core.revocation.notInEmbeddedCrl', { issuer: crlInfo.issuer }),
+        detailsI18nKey: 'core.revocation.notInEmbeddedCrl',
+        detailsI18nParams: { issuer: crlInfo.issuer },
       }
     } catch {
       continue
@@ -77,7 +83,8 @@ export function checkEmbeddedRevocationStatus(
     status: 'unknown',
     checkedAt: new Date(),
     method: 'embedded',
-    details: '無法從內嵌撤銷資訊判定狀態',
+    details: t('core.revocation.cannotDetermineFromEmbedded'),
+    detailsI18nKey: 'core.revocation.cannotDetermineFromEmbedded',
   }
 }
 
@@ -133,7 +140,7 @@ export function isLtvComplete(
   if (!embeddedInfo) {
     for (const cert of chain) {
       if (!cert.isSelfSigned) {
-        missing.push(`${getCommonName(cert.subject)} 缺少撤銷資訊`)
+        missing.push(t('core.revocation.missingRevocationInfo', { name: getCommonName(cert.subject) }))
       }
     }
     return { complete: false, missing }
@@ -145,7 +152,7 @@ export function isLtvComplete(
     const result = checkEmbeddedRevocationStatus(cert, embeddedInfo)
 
     if (result.status === 'unknown' || result.status === 'error') {
-      missing.push(`${getCommonName(cert.subject)} 缺少撤銷資訊`)
+      missing.push(t('core.revocation.missingRevocationInfo', { name: getCommonName(cert.subject) }))
     }
   }
 

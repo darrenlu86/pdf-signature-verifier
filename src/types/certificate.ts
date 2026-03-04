@@ -58,6 +58,8 @@ export interface RevocationResult {
   revokedAt?: Date
   reason?: RevocationReason
   details?: string
+  detailsI18nKey?: string
+  detailsI18nParams?: Record<string, string | number>
 }
 
 export type RevocationReason =

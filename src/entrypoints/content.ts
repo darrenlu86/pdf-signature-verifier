@@ -1,8 +1,31 @@
+import { t, setLocale, detectBrowserLocale } from '@/i18n'
+import type { Locale } from '@/i18n'
+
 export default defineContentScript({
   matches: ['<all_urls>'],
   runAt: 'document_idle',
 
   main() {
+    // Initialize locale from settings
+    const initLocale = async () => {
+      try {
+        if (typeof chrome !== 'undefined' && chrome.storage) {
+          const result = await chrome.storage.local.get('pdf-verifier-settings')
+          const settings = result['pdf-verifier-settings']
+          if (settings?.language) {
+            setLocale(settings.language as Locale)
+          } else {
+            setLocale(detectBrowserLocale())
+          }
+        } else {
+          setLocale(detectBrowserLocale())
+        }
+      } catch {
+        setLocale(detectBrowserLocale())
+      }
+    }
+    initLocale()
+
     // Detect PDF files in the page
     detectPdfLinks()
     detectEmbeddedPdfs()
@@ -28,6 +51,19 @@ export default defineContentScript({
         closePanel()
       }
     })
+
+    // Listen for language changes from popup/settings
+    if (typeof chrome !== 'undefined' && chrome.storage) {
+      chrome.storage.onChanged.addListener((changes, area) => {
+        if (area === 'local' && changes['pdf-verifier-settings']) {
+          const newSettings = changes['pdf-verifier-settings'].newValue
+          if (newSettings?.language) {
+            setLocale(newSettings.language as Locale)
+            refreshIdleButtonLabels()
+          }
+        }
+      })
+    }
   },
 })
 
@@ -170,12 +206,12 @@ function sendMessageWithTimeout<T>(
   return new Promise((resolve, reject) => {
     // Check if extension context is still valid
     if (!chrome.runtime?.id) {
-      reject(new Error('擴充功能已更新，請重新整理頁面'))
+      reject(new Error(t('content.extensionUpdated')))
       return
     }
 
     const timer = setTimeout(() => {
-      reject(new Error('驗證逾時，請稍後再試'))
+      reject(new Error(t('content.verifyTimeout')))
     }, timeoutMs)
 
     try {
@@ -191,16 +227,25 @@ function sendMessageWithTimeout<T>(
       })
     } catch {
       clearTimeout(timer)
-      reject(new Error('擴充功能連線失敗，請重新整理頁面'))
+      reject(new Error(t('content.connectionFailed')))
     }
   })
 }
 
 // ─── Button Creators ────────────────────────────────────────────
 
+function refreshIdleButtonLabels() {
+  document.querySelectorAll<HTMLButtonElement>('[data-pdf-verifier-state="idle"]').forEach((btn) => {
+    const labelKey = btn.dataset.pdfVerifierLabel || 'content.verifySignature'
+    btn.innerHTML = `${svgSearch()} ${t(labelKey)}`
+  })
+}
+
 function createVerifyButton(link: HTMLAnchorElement): HTMLButtonElement {
   const button = document.createElement('button')
-  button.innerHTML = `${svgSearch()} 驗證簽章`
+  button.dataset.pdfVerifierState = 'idle'
+  button.dataset.pdfVerifierLabel = 'content.verifySignature'
+  button.innerHTML = `${svgSearch()} ${t('content.verifySignature')}`
   button.style.cssText = `
     margin-left: 8px;
     padding: 2px 8px;
@@ -219,7 +264,8 @@ function createVerifyButton(link: HTMLAnchorElement): HTMLButtonElement {
     e.preventDefault()
     e.stopPropagation()
 
-    button.innerHTML = `${svgLoading()} 驗證中...`
+    button.dataset.pdfVerifierState = 'busy'
+    button.innerHTML = `${svgLoading()} ${t('content.verifying')}`
     button.disabled = true
 
     try {
@@ -230,15 +276,15 @@ function createVerifyButton(link: HTMLAnchorElement): HTMLButtonElement {
       })
 
       if (!result || result.error) {
-        button.innerHTML = `${svgX()} 驗證失敗`
-        button.title = result?.error || '無回應'
+        button.innerHTML = `${svgX()} ${t('content.failed')}`
+        button.title = result?.error || t('content.noResponse')
       } else {
         updateButtonWithResult(button, result.result as VerifyResult)
         showPanel(result.result)
       }
     } catch (error) {
-      button.innerHTML = `${svgX()} 錯誤`
-      button.title = error instanceof Error ? error.message : '未知錯誤'
+      button.innerHTML = `${svgX()} ${t('content.error')}`
+      button.title = error instanceof Error ? error.message : t('content.unknownError')
     }
 
     button.disabled = false
@@ -249,7 +295,9 @@ function createVerifyButton(link: HTMLAnchorElement): HTMLButtonElement {
 
 function createEmbedVerifyButton(embed: HTMLEmbedElement): HTMLButtonElement {
   const button = document.createElement('button')
-  button.innerHTML = `${svgSearch()} 驗證 PDF 簽章`
+  button.dataset.pdfVerifierState = 'idle'
+  button.dataset.pdfVerifierLabel = 'content.verifyPdfSignature'
+  button.innerHTML = `${svgSearch()} ${t('content.verifyPdfSignature')}`
   button.style.cssText = `
     display: inline-flex;
     align-items: center;
@@ -267,11 +315,12 @@ function createEmbedVerifyButton(embed: HTMLEmbedElement): HTMLButtonElement {
   button.addEventListener('click', async () => {
     const src = embed.src || embed.getAttribute('data')
     if (!src) {
-      button.innerHTML = `${svgX()} 無法取得 PDF`
+      button.innerHTML = `${svgX()} ${t('content.cannotGetPdf')}`
       return
     }
 
-    button.innerHTML = `${svgLoading()} 驗證中...`
+    button.dataset.pdfVerifierState = 'busy'
+    button.innerHTML = `${svgLoading()} ${t('content.verifying')}`
     button.disabled = true
 
     try {
@@ -282,13 +331,13 @@ function createEmbedVerifyButton(embed: HTMLEmbedElement): HTMLButtonElement {
       })
 
       if (!result || result.error) {
-        button.innerHTML = `${svgX()} 驗證失敗`
+        button.innerHTML = `${svgX()} ${t('content.failed')}`
       } else {
         updateButtonWithResult(button, result.result as VerifyResult)
         showPanel(result.result)
       }
     } catch {
-      button.innerHTML = `${svgX()} 錯誤`
+      button.innerHTML = `${svgX()} ${t('content.error')}`
     }
 
     button.disabled = false
@@ -331,7 +380,9 @@ function injectPdfViewerButton() {
 
   const button = document.createElement('button')
   button.id = 'pdf-verifier-floating-button'
-  button.innerHTML = `${svgSearch()} 驗證簽章`
+  button.dataset.pdfVerifierState = 'idle'
+  button.dataset.pdfVerifierLabel = 'content.verifySignature'
+  button.innerHTML = `${svgSearch()} ${t('content.verifySignature')}`
   button.style.cssText = `
     position: fixed;
     top: ${topOffset}px;
@@ -353,7 +404,8 @@ function injectPdfViewerButton() {
   `
 
   button.addEventListener('click', async () => {
-    button.innerHTML = `${svgLoading()} 驗證中...`
+    button.dataset.pdfVerifierState = 'busy'
+    button.innerHTML = `${svgLoading()} ${t('content.verifying')}`
     button.disabled = true
 
     try {
@@ -367,15 +419,15 @@ function injectPdfViewerButton() {
       })
 
       if (!result || result.error) {
-        button.innerHTML = `${svgX()} 驗證失敗`
-        button.title = result?.error || '無回應'
+        button.innerHTML = `${svgX()} ${t('content.failed')}`
+        button.title = result?.error || t('content.noResponse')
       } else {
         updateButtonWithResult(button, result.result as VerifyResult)
         showPanel(result.result)
       }
     } catch (error) {
-      button.innerHTML = `${svgX()} 錯誤`
-      button.title = error instanceof Error ? error.message : '未知錯誤'
+      button.innerHTML = `${svgX()} ${t('content.error')}`
+      button.title = error instanceof Error ? error.message : t('content.unknownError')
     }
 
     button.disabled = false
@@ -401,13 +453,13 @@ function updateButtonWithResult(
 ) {
   const status = result?.status
   if (status === 'trusted') {
-    button.innerHTML = `${svgCheck()} 文件可信`
+    button.innerHTML = `${svgCheck()} ${t('content.trusted')}`
     button.style.background = '#22c55e'
   } else if (status === 'failed') {
-    button.innerHTML = `${svgX()} 驗證失敗`
+    button.innerHTML = `${svgX()} ${t('content.failed')}`
     button.style.background = '#ef4444'
   } else {
-    button.innerHTML = `${svgWarning()} 來源未知`
+    button.innerHTML = `${svgWarning()} ${t('content.unknown')}`
     button.style.background = '#eab308'
   }
 
@@ -424,7 +476,7 @@ function buildTooltip(result: VerifyResult): string {
 
   const signerNames = signatures.map((s) => s.signerName).filter(Boolean)
   if (signerNames.length > 0) {
-    parts.push(`簽署者：${signerNames.join(', ')}`)
+    parts.push(t('content.signerLabel', { names: signerNames.join(', ') }))
   }
 
   const rootCAs = new Set<string>()
@@ -436,16 +488,16 @@ function buildTooltip(result: VerifyResult): string {
     }
   }
   if (rootCAs.size > 0) {
-    parts.push(`根 CA：${[...rootCAs].join(', ')}`)
+    parts.push(t('content.rootCaLabel', { names: [...rootCAs].join(', ') }))
   }
 
   const statusText =
     result.status === 'trusted'
-      ? '全部有效'
+      ? t('content.allValid')
       : result.status === 'failed'
-        ? '驗證失敗'
-        : '來源未知'
-  parts.push(`${signatures.length} 個簽章${statusText}`)
+        ? t('content.failed')
+        : t('content.unknown')
+  parts.push(t('content.signatureCount', { count: signatures.length, status: statusText }))
 
   return parts.join(' | ')
 }

@@ -1,6 +1,7 @@
 import * as asn1js from 'asn1js'
 import * as pkijs from 'pkijs'
 import type { ParsedCertificate, RevocationResult, RevocationReason } from '@/types'
+import { t } from '@/i18n'
 
 const { OCSPRequest, OCSPResponse, BasicOCSPResponse, CertID } = pkijs
 
@@ -18,7 +19,8 @@ export async function checkOcspStatus(
       status: 'unknown',
       checkedAt: new Date(),
       method: 'ocsp',
-      details: '憑證未包含 OCSP 回應端 URL',
+      details: t('core.revocation.noOcspUrl'),
+      detailsI18nKey: 'core.revocation.noOcspUrl',
     }
   }
 
@@ -36,7 +38,8 @@ export async function checkOcspStatus(
     status: 'error',
     checkedAt: new Date(),
     method: 'ocsp',
-    details: '所有 OCSP 回應端查詢失敗',
+    details: t('core.revocation.allOcspFailed'),
+    detailsI18nKey: 'core.revocation.allOcspFailed',
   }
 }
 
@@ -61,8 +64,13 @@ async function queryOcsp(
 
   // Parse response and append issuer info
   const result = parseOcspResponse(response)
-  const issuerSuffix = `（簽發者：${issuerCertificate.subject}）`
-  return { ...result, details: `${result.details}${issuerSuffix}` }
+  const issuerSuffix = t('core.revocation.issuerSuffix', { issuer: issuerCertificate.subject })
+  return {
+    ...result,
+    details: `${result.details}${issuerSuffix}`,
+    detailsI18nKey: result.detailsI18nKey,
+    detailsI18nParams: result.detailsI18nParams,
+  }
 }
 
 /**
@@ -133,7 +141,9 @@ function parseOcspResponse(data: Uint8Array): RevocationResult {
       status: 'error',
       checkedAt: new Date(),
       method: 'ocsp',
-      details: `OCSP 回應狀態：${getOcspStatusText(responseStatus)}`,
+      details: t('core.revocation.ocspResponseStatus', { status: getOcspStatusText(responseStatus) }),
+      detailsI18nKey: 'core.revocation.ocspResponseStatus',
+      detailsI18nParams: { status: getOcspStatusText(responseStatus) },
     }
   }
 
@@ -166,7 +176,8 @@ function parseOcspResponse(data: Uint8Array): RevocationResult {
       status: 'good',
       checkedAt: new Date(),
       method: 'ocsp',
-      details: '憑證未被撤銷',
+      details: t('core.revocation.ocspNotRevoked'),
+      detailsI18nKey: 'core.revocation.ocspNotRevoked',
     }
   } else if (certStatus.idBlock.tagNumber === 1) {
     // Revoked
@@ -189,7 +200,11 @@ function parseOcspResponse(data: Uint8Array): RevocationResult {
       method: 'ocsp',
       revokedAt,
       reason,
-      details: `憑證已被撤銷${reason ? `（${reason}）` : ''}`,
+      details: reason
+        ? t('core.revocation.ocspRevokedWithReason', { reason })
+        : t('core.revocation.ocspRevoked'),
+      detailsI18nKey: reason ? 'core.revocation.ocspRevokedWithReason' : 'core.revocation.ocspRevoked',
+      detailsI18nParams: reason ? { reason } : undefined,
     }
   } else {
     // Unknown
@@ -197,7 +212,8 @@ function parseOcspResponse(data: Uint8Array): RevocationResult {
       status: 'unknown',
       checkedAt: new Date(),
       method: 'ocsp',
-      details: '憑證撤銷狀態未知',
+      details: t('core.revocation.ocspUnknown'),
+      detailsI18nKey: 'core.revocation.ocspUnknown',
     }
   }
 }
@@ -270,7 +286,8 @@ export function parseEmbeddedOcspResponse(data: Uint8Array): EmbeddedOcspResult 
     status: 'error',
     checkedAt: new Date(),
     method: 'embedded',
-    details: '無法解析內嵌 OCSP 回應',
+    details: t('core.revocation.cannotParseEmbeddedOcsp'),
+    detailsI18nKey: 'core.revocation.cannotParseEmbeddedOcsp',
   }
 }
 
@@ -350,7 +367,10 @@ function extractOcspMeta(
       status: 'good',
       checkedAt: new Date(),
       method,
-      details: method === 'embedded' ? '憑證未被撤銷（內嵌 OCSP）' : '憑證未被撤銷',
+      details: method === 'embedded'
+        ? t('core.revocation.ocspNotRevokedEmbedded')
+        : t('core.revocation.ocspNotRevoked'),
+      detailsI18nKey: method === 'embedded' ? 'core.revocation.ocspNotRevokedEmbedded' : 'core.revocation.ocspNotRevoked',
       targetSerial,
       producedAt,
       thisUpdate,
@@ -376,7 +396,11 @@ function extractOcspMeta(
       method,
       revokedAt,
       reason,
-      details: `憑證已被撤銷${reason ? `（${reason}）` : ''}`,
+      details: reason
+        ? t('core.revocation.ocspRevokedWithReason', { reason })
+        : t('core.revocation.ocspRevoked'),
+      detailsI18nKey: reason ? 'core.revocation.ocspRevokedWithReason' : 'core.revocation.ocspRevoked',
+      detailsI18nParams: reason ? { reason } : undefined,
       targetSerial,
       producedAt,
       thisUpdate,
@@ -387,7 +411,8 @@ function extractOcspMeta(
       status: 'unknown',
       checkedAt: new Date(),
       method,
-      details: '憑證撤銷狀態未知',
+      details: t('core.revocation.ocspUnknown'),
+      detailsI18nKey: 'core.revocation.ocspUnknown',
       targetSerial,
       producedAt,
       thisUpdate,

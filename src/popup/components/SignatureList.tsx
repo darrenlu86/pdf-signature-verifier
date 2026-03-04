@@ -1,6 +1,7 @@
 import type { SignatureResult } from '@/types'
 import { SignatureCard } from './SignatureCard'
 import { DocumentIcon } from './icons'
+import { t } from '@/i18n'
 
 interface SignatureListProps {
   signatures: SignatureResult[]
@@ -13,7 +14,7 @@ export function SignatureList({ signatures }: SignatureListProps) {
         <div className="flex justify-center mb-2">
           <DocumentIcon className="w-10 h-10 text-gray-400" />
         </div>
-        <div>此文件沒有數位簽章</div>
+        <div>{t('verification.noSignatures')}</div>
       </div>
     )
   }

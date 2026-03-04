@@ -1,5 +1,6 @@
 import * as asn1js from 'asn1js'
 import * as pkijs from 'pkijs'
+import { t } from '@/i18n'
 import type {
   ParsedPkcs7,
   SignerInfo,
@@ -270,7 +271,7 @@ async function parseTimestampToken(data: Uint8Array): Promise<EmbeddedTimestamp 
     const time = genTimeItem.toDate()
 
     // Get TSA name from certificates
-    let issuer = '未知 TSA'
+    let issuer = t('core.timestampVerifier.unknownTsa')
     if (tspSignedData.certificates && tspSignedData.certificates.length > 0) {
       const tsaCert = tspSignedData.certificates[0]
       if (tsaCert instanceof Certificate) {

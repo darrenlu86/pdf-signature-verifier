@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import type { SignatureResult } from '@/types'
+import { t, getLocale } from '@/i18n'
 import { VerificationDetails } from './VerificationDetails'
 import { CertificateChain } from './CertificateChain'
 import { CheckIcon, XIcon, WarningIcon } from './icons'
@@ -8,9 +9,16 @@ interface SignatureCardProps {
   signature: SignatureResult
 }
 
+function getSignatureStatusLabel(status: 'trusted' | 'unknown' | 'failed'): string {
+  switch (status) {
+    case 'trusted': return t('signature.valid')
+    case 'unknown': return t('signature.statusUnknown')
+    case 'failed': return t('signature.invalid')
+  }
+}
+
 const statusConfig = {
   trusted: {
-    label: '簽章有效',
     Icon: CheckIcon,
     badgeBg: 'bg-green-100',
     badgeText: 'text-green-800',
@@ -18,7 +26,6 @@ const statusConfig = {
     headerBg: 'bg-green-50',
   },
   unknown: {
-    label: '簽章未知',
     Icon: WarningIcon,
     badgeBg: 'bg-yellow-100',
     badgeText: 'text-yellow-800',
@@ -26,7 +33,6 @@ const statusConfig = {
     headerBg: 'bg-yellow-50',
   },
   failed: {
-    label: '簽章無效',
     Icon: XIcon,
     badgeBg: 'bg-red-100',
     badgeText: 'text-red-800',
@@ -42,8 +48,8 @@ export function SignatureCard({ signature }: SignatureCardProps) {
   const { Icon } = config
 
   const formatDate = (date: Date | null) => {
-    if (!date) return '未知'
-    return date.toLocaleString('zh-TW', {
+    if (!date) return t('signature.unknown')
+    return date.toLocaleString(getLocale(), {
       year: 'numeric',
       month: '2-digit',
       day: '2-digit',
@@ -74,7 +80,7 @@ export function SignatureCard({ signature }: SignatureCardProps) {
             className={`inline-flex items-center gap-1.5 ${config.badgeBg} ${config.badgeText} px-3 py-1 rounded-full text-sm font-bold flex-shrink-0`}
           >
             <Icon className="inline-block" />
-            <span>{config.label}</span>
+            <span>{getSignatureStatusLabel(signature.status)}</span>
           </span>
 
           <div className="flex-1" />
@@ -92,22 +98,22 @@ export function SignatureCard({ signature }: SignatureCardProps) {
         {/* Signer info - always visible */}
         <div className="mt-2 space-y-0.5 text-sm">
           <div className="text-gray-800">
-            <span className="text-gray-500">簽署者：</span>
+            <span className="text-gray-500">{t('signature.signer')}</span>
             <span className="font-medium">{signature.signerName}</span>
           </div>
           <div className="text-gray-600">
-            <span className="text-gray-500">時間：</span>
+            <span className="text-gray-500">{t('signature.signedAt')}</span>
             {formatDate(signature.signedAt)}
           </div>
           {signature.reason && (
             <div className="text-gray-600">
-              <span className="text-gray-500">原因：</span>
+              <span className="text-gray-500">{t('signature.reason')}</span>
               {signature.reason}
             </div>
           )}
           {signature.location && (
             <div className="text-gray-600">
-              <span className="text-gray-500">位置：</span>
+              <span className="text-gray-500">{t('signature.location')}</span>
               {signature.location}
             </div>
           )}
@@ -137,13 +143,13 @@ export function SignatureCard({ signature }: SignatureCardProps) {
           {signature.timestampInfo && (
             <div className="border-t border-gray-100 px-4 py-3">
               <div className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-2">
-                時戳資訊
+                {t('timestamp.title')}
               </div>
               <div className="bg-gray-50 rounded-lg p-3 text-sm space-y-1.5">
                 <div className="flex items-start gap-2">
-                  <span className="text-gray-400 flex-shrink-0">時間：</span>
+                  <span className="text-gray-400 flex-shrink-0">{t('timestamp.time')}</span>
                   <span className="text-gray-800 font-mono text-xs">
-                    {signature.timestampInfo.time.toLocaleString('zh-TW', {
+                    {signature.timestampInfo.time.toLocaleString(getLocale(), {
                       year: 'numeric',
                       month: '2-digit',
                       day: '2-digit',
@@ -155,16 +161,16 @@ export function SignatureCard({ signature }: SignatureCardProps) {
                   </span>
                 </div>
                 <div className="flex items-start gap-2">
-                  <span className="text-gray-400 flex-shrink-0">TSA：</span>
+                  <span className="text-gray-400 flex-shrink-0">{t('timestamp.tsa')}</span>
                   <span className="text-gray-800">{signature.timestampInfo.issuer}</span>
                 </div>
                 <div className="flex items-start gap-2">
-                  <span className="text-gray-400 flex-shrink-0">雜湊：</span>
+                  <span className="text-gray-400 flex-shrink-0">{t('timestamp.hashAlgorithm')}</span>
                   <span className="text-gray-800">{signature.timestampInfo.hashAlgorithm}</span>
                 </div>
                 {signature.timestampInfo.serialNumber && (
                   <div className="flex items-start gap-2">
-                    <span className="text-gray-400 flex-shrink-0">序號：</span>
+                    <span className="text-gray-400 flex-shrink-0">{t('timestamp.serial')}</span>
                     <span className="text-gray-800 font-mono text-[10px] break-all">
                       {signature.timestampInfo.serialNumber}
                     </span>

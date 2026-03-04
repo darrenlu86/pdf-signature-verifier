@@ -20,7 +20,7 @@ export function getLocale(): Locale {
   return currentLocale
 }
 
-export function t(key: string): string {
+export function t(key: string, params?: Record<string, string | number>): string {
   const keys = key.split('.')
   let result: unknown = translations[currentLocale]
 
@@ -32,7 +32,17 @@ export function t(key: string): string {
     }
   }
 
-  return typeof result === 'string' ? result : key
+  if (typeof result !== 'string') {
+    return key
+  }
+
+  if (!params) {
+    return result
+  }
+
+  return result.replace(/\{(\w+)\}/g, (_, paramKey) => {
+    return paramKey in params ? String(params[paramKey]) : `{${paramKey}}`
+  })
 }
 
 export function detectBrowserLocale(): Locale {
@@ -43,6 +53,38 @@ export function detectBrowserLocale(): Locale {
   }
 
   return 'en'
+}
+
+/**
+ * Resolve a CheckResult's message/details using i18n keys if available.
+ * Falls back to the stored message string if no i18n key is present.
+ */
+export function resolveCheck(check: {
+  message: string
+  details?: string
+  i18nKey?: string
+  i18nParams?: Record<string, string | number>
+  detailsI18nKey?: string
+  detailsI18nParams?: Record<string, string | number>
+}): { message: string; details?: string } {
+  const message = check.i18nKey ? t(check.i18nKey, check.i18nParams) : check.message
+  const details = check.detailsI18nKey
+    ? t(check.detailsI18nKey, check.detailsI18nParams)
+    : check.details
+  return { message, details }
+}
+
+/**
+ * Resolve a VerificationResult's summary using i18n keys if available.
+ */
+export function resolveSummary(result: {
+  summary: string
+  summaryI18nKey?: string
+  summaryI18nParams?: Record<string, string | number>
+}): string {
+  return result.summaryI18nKey
+    ? t(result.summaryI18nKey, result.summaryI18nParams)
+    : result.summary
 }
 
 export { zhTW, en }

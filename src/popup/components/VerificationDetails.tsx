@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import type { CheckResult, SignatureResult } from '@/types'
+import { t, resolveCheck } from '@/i18n'
 import { CheckIcon, XIcon, ChevronRightIcon, ChevronDownIcon } from './icons'
 
 interface VerificationDetailsProps {
@@ -16,10 +17,11 @@ interface CheckRowProps {
 
 function CheckRow({ label, check, summary }: CheckRowProps) {
   const [expanded, setExpanded] = useState(false)
+  const resolved = resolveCheck(check)
 
   const StatusIcon = check.passed ? CheckIcon : XIcon
   const iconColor = check.passed ? 'text-green-600' : 'text-red-600'
-  const hasDetails = Boolean(check.details)
+  const hasDetails = Boolean(resolved.details)
 
   return (
     <div className="border-b border-gray-100 last:border-b-0">
@@ -44,14 +46,14 @@ function CheckRow({ label, check, summary }: CheckRowProps) {
         {/* Short summary on right */}
         <span className={`${iconColor} flex-shrink-0 text-xs font-medium flex items-center gap-1`}>
           <StatusIcon className="w-3.5 h-3.5 inline-block" />
-          <span className="max-w-[140px] truncate">{summary || check.message}</span>
+          <span className="max-w-[140px] truncate">{summary || resolved.message}</span>
         </span>
       </button>
 
       {/* Expanded details */}
-      {expanded && check.details && (
+      {expanded && resolved.details && (
         <div className="px-7 pb-2 text-xs text-gray-500 leading-relaxed whitespace-pre-wrap">
-          {check.details}
+          {resolved.details}
         </div>
       )}
     </div>
@@ -61,37 +63,37 @@ function CheckRow({ label, check, summary }: CheckRowProps) {
 export function VerificationDetails({ checks, chainLength, rootCA }: VerificationDetailsProps) {
   const getSummary = (key: string, check: CheckResult): string => {
     if (!check.passed) {
-      return check.message
+      return resolveCheck(check).message
     }
 
     switch (key) {
       case 'integrity':
-        return '已驗證'
+        return t('checks.verified')
       case 'certificateChain':
-        return chainLength ? `完整 (${chainLength}張)` : '已驗證'
+        return chainLength ? t('checks.chainComplete', { count: chainLength }) : t('checks.verified')
       case 'trustRoot':
-        return rootCA ? truncate(rootCA, 18) : '已信任'
+        return rootCA ? truncate(rootCA, 18) : t('checks.trusted')
       case 'validity':
-        return '有效'
+        return t('checks.valid')
       case 'revocation':
-        return '未撤銷'
+        return t('checks.notRevoked')
       case 'timestamp':
-        return '已驗證'
+        return t('checks.verified')
       case 'ltv':
-        return '完整'
+        return t('checks.complete')
       default:
-        return check.message
+        return resolveCheck(check).message
     }
   }
 
   const checkItems: { key: keyof typeof checks; label: string }[] = [
-    { key: 'integrity', label: '文件完整性' },
-    { key: 'certificateChain', label: '簽署者身分' },
-    { key: 'trustRoot', label: '根憑證' },
-    { key: 'validity', label: '有效期限' },
-    { key: 'revocation', label: '撤銷狀態' },
-    { key: 'timestamp', label: '時戳' },
-    { key: 'ltv', label: 'LTV' },
+    { key: 'integrity', label: t('checks.integrity') },
+    { key: 'certificateChain', label: t('checks.signerIdentity') },
+    { key: 'trustRoot', label: t('checks.rootCert') },
+    { key: 'validity', label: t('checks.validity') },
+    { key: 'revocation', label: t('checks.revocation') },
+    { key: 'timestamp', label: t('checks.timestamp') },
+    { key: 'ltv', label: t('checks.ltv') },
   ]
 
   return (

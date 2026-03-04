@@ -1,6 +1,7 @@
 import * as asn1js from 'asn1js'
 import * as pkijs from 'pkijs'
 import type { ParsedCertificate, RevocationResult, RevocationReason, CrlInfo } from '@/types'
+import { t } from '@/i18n'
 
 const { CertificateRevocationList } = pkijs
 
@@ -18,7 +19,8 @@ export async function checkCrlStatus(
       status: 'unknown',
       checkedAt: new Date(),
       method: 'crl',
-      details: '憑證未包含 CRL 發佈點',
+      details: t('core.revocation.noCrlDistPoints'),
+      detailsI18nKey: 'core.revocation.noCrlDistPoints',
     }
   }
 
@@ -36,7 +38,8 @@ export async function checkCrlStatus(
     status: 'error',
     checkedAt: new Date(),
     method: 'crl',
-    details: '所有 CRL 端點查詢失敗',
+    details: t('core.revocation.allCrlFailed'),
+    detailsI18nKey: 'core.revocation.allCrlFailed',
   }
 }
 
@@ -67,7 +70,9 @@ async function queryCrl(
       status: 'revoked',
       checkedAt: new Date(),
       method: 'crl',
-      details: `憑證序號存在於 CRL 撤銷清單中（簽發者：${crlInfo.issuer}）`,
+      details: t('core.revocation.serialInCrl', { issuer: crlInfo.issuer }),
+      detailsI18nKey: 'core.revocation.serialInCrl',
+      detailsI18nParams: { issuer: crlInfo.issuer },
     }
   }
 
@@ -78,7 +83,9 @@ async function queryCrl(
       status: 'unknown',
       checkedAt: new Date(),
       method: 'crl',
-      details: `CRL 尚未生效（簽發者：${crlInfo.issuer}）`,
+      details: t('core.revocation.crlNotYetValid', { issuer: crlInfo.issuer }),
+      detailsI18nKey: 'core.revocation.crlNotYetValid',
+      detailsI18nParams: { issuer: crlInfo.issuer },
     }
   }
 
@@ -87,7 +94,9 @@ async function queryCrl(
       status: 'unknown',
       checkedAt: new Date(),
       method: 'crl',
-      details: `CRL 已過期（簽發者：${crlInfo.issuer}）`,
+      details: t('core.revocation.crlExpired', { issuer: crlInfo.issuer }),
+      detailsI18nKey: 'core.revocation.crlExpired',
+      detailsI18nParams: { issuer: crlInfo.issuer },
     }
   }
 
@@ -95,7 +104,9 @@ async function queryCrl(
     status: 'good',
     checkedAt: new Date(),
     method: 'crl',
-    details: `憑證未在 CRL 撤銷清單中（簽發者：${crlInfo.issuer}）`,
+    details: t('core.revocation.notInCrl', { issuer: crlInfo.issuer }),
+    detailsI18nKey: 'core.revocation.notInCrl',
+    detailsI18nParams: { issuer: crlInfo.issuer },
   }
 }
 

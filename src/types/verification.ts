@@ -1,10 +1,14 @@
 export type VerificationStatus = 'trusted' | 'unknown' | 'failed'
 
+export type I18nParams = Record<string, string | number>
+
 export interface VerificationResult {
   status: VerificationStatus
   fileName: string
   signatures: SignatureResult[]
   summary: string
+  summaryI18nKey?: string
+  summaryI18nParams?: I18nParams
 }
 
 export interface SignatureResult {
@@ -34,6 +38,10 @@ export interface CheckResult {
   passed: boolean
   message: string
   details?: string
+  i18nKey?: string
+  i18nParams?: I18nParams
+  detailsI18nKey?: string
+  detailsI18nParams?: I18nParams
 }
 
 export interface CertificateInfo {
@@ -79,12 +87,36 @@ export interface CrlInfo {
   serialNumbers: string[]
 }
 
-export function createFailedCheck(message: string, details?: string): CheckResult {
-  return { passed: false, message, details }
+export function createFailedCheck(
+  message: string,
+  details?: string,
+  i18n?: { key: string; params?: I18nParams; detailsKey?: string; detailsParams?: I18nParams }
+): CheckResult {
+  return {
+    passed: false,
+    message,
+    details,
+    i18nKey: i18n?.key,
+    i18nParams: i18n?.params,
+    detailsI18nKey: i18n?.detailsKey,
+    detailsI18nParams: i18n?.detailsParams,
+  }
 }
 
-export function createPassedCheck(message: string, details?: string): CheckResult {
-  return { passed: true, message, details }
+export function createPassedCheck(
+  message: string,
+  details?: string,
+  i18n?: { key: string; params?: I18nParams; detailsKey?: string; detailsParams?: I18nParams }
+): CheckResult {
+  return {
+    passed: true,
+    message,
+    details,
+    i18nKey: i18n?.key,
+    i18nParams: i18n?.params,
+    detailsI18nKey: i18n?.detailsKey,
+    detailsI18nParams: i18n?.detailsParams,
+  }
 }
 
 export function determineOverallStatus(signatures: SignatureResult[]): VerificationStatus {

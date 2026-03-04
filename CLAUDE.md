@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-Browser extension that verifies PDF digital signatures with X.509 certificate support. Built as a Chrome MV3 extension using WXT framework. UI is primarily in Traditional Chinese (zh-TW) with English fallback.
+Browser extension that verifies PDF digital signatures with X.509 certificate support. Built as a Chrome MV3 extension using WXT framework. Supports Traditional Chinese (zh-TW) and English (en) with automatic language detection and manual switching.
 
 ## Tech Stack
 
@@ -71,7 +71,9 @@ The main entry point is `verifyPdfSignatures()` in `src/core/verifier.ts`. For e
 8. **Revocation** - Check embedded OCSP/CRL, then optionally online OCSP/CRL
 9. **LTV** - Check Long-Term Validation completeness (embedded revocation + timestamp)
 
-Each step produces a `CheckResult` (`{ passed, message, details }`). The overall status is `trusted | unknown | failed`.
+Each step produces a `CheckResult` (`{ passed, message, details, i18nKey?, i18nParams?, detailsI18nKey?, detailsI18nParams? }`). The overall status is `trusted | unknown | failed`.
+
+CheckResult stores both pre-rendered strings and i18n keys. Core modules run in the background service worker where the locale may differ from the UI. At render time, UI components call `resolveCheck(check)` and `resolveSummary(result)` (from `src/i18n/index.ts`) to re-resolve strings in the current locale.
 
 ## Extension Architecture
 
@@ -81,13 +83,24 @@ Each step produces a `CheckResult` (`{ passed, message, details }`). The overall
 
 Messages flow: content script -> background (via `chrome.runtime.sendMessage`) -> core verifier -> result back to content -> panel iframe.
 
+## i18n Architecture
+
+- **Locales**: `zh-TW` (Traditional Chinese), `en` (English). Translation files: `src/i18n/zh-TW.json`, `src/i18n/en.json`.
+- **Auto-detection**: `detectBrowserLocale()` selects language based on `navigator.language`. Chinese → `zh-TW`, otherwise → `en`.
+- **Manual switching**: Settings panel dropdown. Persisted in `chrome.storage.local` under `pdf-verifier-settings.language`.
+- **Multi-context sync**: Each JS context (popup, background, content script) has its own i18n state. Language changes propagate via `chrome.storage.onChanged`:
+  - **Popup/Panel**: `useEffect` on `settings.language` calls `setLocale()`.
+  - **Content script**: `chrome.storage.onChanged` listener updates locale and refreshes idle button labels.
+  - **Background**: Initializes locale on startup; verification results store i18n keys for render-time resolution.
+- **Render-time resolution**: `resolveCheck()` and `resolveSummary()` re-resolve stored i18n keys at render time, ensuring correct language regardless of when verification ran.
+- **All user-facing strings** use `t(key, params?)` — no hardcoded Chinese/English in `.ts`/`.tsx` files.
+
 ## Conventions
 
-- **UI strings**: Traditional Chinese (zh-TW) is the primary locale. All user-facing strings use `zh-TW.json` translations.
 - **Immutability**: Create new objects, never mutate. See `mergeRevocationInfo()` pattern.
 - **Small files**: Each module handles one concern (e.g., `digest-verifier.ts`, `chain-builder.ts`, `ocsp-client.ts`).
 - **Path alias**: `@/` maps to `src/` (configured in tsconfig and vitest).
-- **Error handling**: Always catch and wrap errors with descriptive Chinese messages.
+- **Error handling**: Always catch and wrap errors with descriptive messages via `t()`.
 - **No hardcoded secrets**: Root certificates loaded dynamically from `taiwan-roots.ts`.
 
 ## Key Dependencies

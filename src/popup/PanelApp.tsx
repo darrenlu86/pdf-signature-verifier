@@ -2,10 +2,32 @@ import { useState, useEffect } from 'react'
 import type { VerificationResult } from '@/types'
 import { StatusBadge, SignatureList, ExportButton } from './components'
 import { DocumentIcon } from './components/icons'
+import { t, setLocale, detectBrowserLocale, resolveSummary } from '@/i18n'
 
 export function PanelApp() {
   const [result, setResult] = useState<VerificationResult | null>(null)
   const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    const initLocale = async () => {
+      try {
+        if (typeof chrome !== 'undefined' && chrome.storage) {
+          const stored = await chrome.storage.local.get('pdf-verifier-settings')
+          const settings = stored['pdf-verifier-settings']
+          if (settings?.language) {
+            setLocale(settings.language)
+          } else {
+            setLocale(detectBrowserLocale())
+          }
+        } else {
+          setLocale(detectBrowserLocale())
+        }
+      } catch {
+        setLocale(detectBrowserLocale())
+      }
+    }
+    initLocale()
+  }, [])
 
   useEffect(() => {
     // Listen for verification results from the content script
@@ -44,7 +66,7 @@ export function PanelApp() {
       <div className="h-screen flex items-center justify-center">
         <div className="text-center">
           <div className="animate-spin w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full mx-auto mb-3" />
-          <div className="text-sm text-gray-500">載入驗證結果...</div>
+          <div className="text-sm text-gray-500">{t('verification.loadingPanel')}</div>
         </div>
       </div>
     )
@@ -57,7 +79,7 @@ export function PanelApp() {
           <div className="flex justify-center mb-2">
             <DocumentIcon className="w-10 h-10 text-gray-400" />
           </div>
-          <div>無驗證結果</div>
+          <div>{t('verification.noResult')}</div>
         </div>
       </div>
     )
@@ -67,12 +89,12 @@ export function PanelApp() {
     <div className="min-h-screen bg-white">
       {/* Header */}
       <header className="sticky top-0 z-10 flex items-center justify-between px-4 py-3 border-b border-gray-200 bg-white">
-        <h1 className="text-base font-semibold text-gray-900">簽章驗證結果</h1>
+        <h1 className="text-base font-semibold text-gray-900">{t('panel.title')}</h1>
         <div className="flex items-center gap-2">
           <a
             href="mailto:bussiness@darrenlu.com"
             className="inline-flex items-center gap-1 px-2 py-1 text-xs text-gray-500 bg-gray-100 rounded-md hover:bg-gray-200 transition-colors"
-            title="商業合作 / 購買授權"
+            title={t('app.businessContact')}
           >
             <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
@@ -82,7 +104,7 @@ export function PanelApp() {
           <button
             onClick={handleClose}
             className="p-1 rounded hover:bg-gray-100 transition-colors"
-            title="關閉面板"
+            title={t('panel.close')}
           >
             <svg className="w-5 h-5 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -107,7 +129,7 @@ export function PanelApp() {
             <StatusBadge status={result.status} size="lg" />
             <ExportButton result={result} />
           </div>
-          <div className="mt-2 text-sm text-gray-600">{result.summary}</div>
+          <div className="mt-2 text-sm text-gray-600">{resolveSummary(result)}</div>
         </div>
 
         {/* Signature List */}
@@ -116,7 +138,7 @@ export function PanelApp() {
 
       {/* Footer */}
       <footer className="px-4 py-2 text-center text-xs text-gray-400 border-t border-gray-100 space-y-1">
-        <div>CMS/PKCS#7 簽章驗證 · X.509 憑證鏈 · RFC 3161 時戳</div>
+        <div>{t('app.footerTech')}</div>
         <div>
           <a href="https://www.buymeacoffee.com/darrenlu" target="_blank" rel="noopener noreferrer">
             <img

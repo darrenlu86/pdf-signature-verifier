@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import type { VerificationResult } from '@/types'
+import { t } from '@/i18n'
 import { generateVerificationReport } from '@/core/report/html-report-generator'
 
 interface ExportButtonProps {
@@ -137,7 +138,7 @@ export function ExportButton({ result }: ExportButtonProps) {
 
       const now = new Date()
       const dateStr = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}`
-      const fileName = `驗證報告_${result.fileName.replace(/\.pdf$/i, '')}_${dateStr}.pdf`
+      const fileName = `${t('export.reportFilename')}_${result.fileName.replace(/\.pdf$/i, '')}_${dateStr}.pdf`
 
       // Use chrome.downloads API for save dialog
       if (typeof chrome !== 'undefined' && chrome.downloads) {
@@ -167,9 +168,9 @@ export function ExportButton({ result }: ExportButtonProps) {
       onClick={handleExport}
       disabled={exporting}
       className="text-sm text-blue-600 hover:text-blue-700 disabled:text-gray-400 disabled:cursor-not-allowed"
-      title="匯出驗證報告 PDF"
+      title={t('export.title')}
     >
-      {exporting ? '匯出中...' : '匯出報告'}
+      {exporting ? t('export.exporting') : t('export.button')}
     </button>
   )
 }

@@ -12,6 +12,7 @@ import {
   determineOverallStatus,
 } from '@/types'
 
+import { t, getLocale } from '@/i18n'
 import { parsePdf } from './pdf/parser'
 import { extractSignedBytes, validateByteRange } from './pdf/byte-range'
 import { parsePkcs7, getSignedAttributesData } from './crypto/pkcs7-parser'
@@ -48,7 +49,8 @@ export async function verifyPdfSignatures(
       status: 'unknown',
       fileName,
       signatures: [],
-      summary: '文件中未發現數位簽章',
+      summary: t('core.summary.noSignatures'),
+      summaryI18nKey: 'core.summary.noSignatures',
     }
   }
 
@@ -81,16 +83,22 @@ export async function verifyPdfSignatures(
   // Generate summary
   const summary =
     status === 'trusted'
-      ? `全部 ${signatures.length} 個簽章均有效且可信`
+      ? t('core.summary.allTrusted', { count: signatures.length })
       : status === 'failed'
-      ? '一個或多個簽章驗證失敗'
-      : '簽章無法完整驗證'
+      ? t('core.summary.someFailed')
+      : t('core.summary.cannotFullyVerify')
 
   return {
     status,
     fileName,
     signatures,
     summary,
+    summaryI18nKey: status === 'trusted'
+      ? 'core.summary.allTrusted'
+      : status === 'failed'
+      ? 'core.summary.someFailed'
+      : 'core.summary.cannotFullyVerify',
+    summaryI18nParams: status === 'trusted' ? { count: signatures.length } : undefined,
   }
 }
 
@@ -105,16 +113,16 @@ async function verifySingleSignature(
   dssRevocationInfo: EmbeddedRevocationInfo | null = null
 ): Promise<SignatureResult> {
   const checks: SignatureResult['checks'] = {
-    integrity: createFailedCheck('未驗證'),
-    certificateChain: createFailedCheck('未驗證'),
-    trustRoot: createFailedCheck('未驗證'),
-    validity: createFailedCheck('未驗證'),
-    revocation: createFailedCheck('未驗證'),
+    integrity: createFailedCheck(t('core.integrity.notVerified'), undefined, { key: 'core.integrity.notVerified' }),
+    certificateChain: createFailedCheck(t('core.integrity.notVerified'), undefined, { key: 'core.integrity.notVerified' }),
+    trustRoot: createFailedCheck(t('core.integrity.notVerified'), undefined, { key: 'core.integrity.notVerified' }),
+    validity: createFailedCheck(t('core.integrity.notVerified'), undefined, { key: 'core.integrity.notVerified' }),
+    revocation: createFailedCheck(t('core.integrity.notVerified'), undefined, { key: 'core.integrity.notVerified' }),
     timestamp: null,
-    ltv: createFailedCheck('未驗證'),
+    ltv: createFailedCheck(t('core.integrity.notVerified'), undefined, { key: 'core.integrity.notVerified' }),
   }
 
-  let signerName = '未知'
+  let signerName = t('core.chain.unknownSigner')
   let signedAt: Date | null = null
   const certificateChain: CertificateInfo[] = []
   let timestampInfo: TimestampInfo | undefined
@@ -124,8 +132,9 @@ async function verifySingleSignature(
     const byteRangeValidation = validateByteRange(pdfData, sigField.byteRange)
     if (!byteRangeValidation.isValid) {
       checks.integrity = createFailedCheck(
-        'ByteRange 驗證失敗',
-        byteRangeValidation.errors.join('; ')
+        t('core.integrity.byteRangeFailed'),
+        byteRangeValidation.errors.join('; '),
+        { key: 'core.integrity.byteRangeFailed' }
       )
       return createSignatureResult(index, signerName, signedAt, 'failed', checks, certificateChain)
     }
@@ -134,7 +143,7 @@ async function verifySingleSignature(
     const pkcs7 = await parsePkcs7(sigField.contents)
 
     if (pkcs7.signerInfos.length === 0) {
-      checks.integrity = createFailedCheck('簽章中無簽署者資訊')
+      checks.integrity = createFailedCheck(t('core.integrity.noSignerInfo'), undefined, { key: 'core.integrity.noSignerInfo' })
       return createSignatureResult(index, signerName, signedAt, 'failed', checks, certificateChain)
     }
 
@@ -163,8 +172,9 @@ async function verifySingleSignature(
 
       if (!digestResult.valid) {
         checks.integrity = createFailedCheck(
-          '文件已被修改',
-          '訊息摘要不符'
+          t('core.integrity.documentModified'),
+          t('core.integrity.digestMismatch'),
+          { key: 'core.integrity.documentModified', detailsKey: 'core.integrity.digestMismatch' }
         )
         return createSignatureResult(index, signerName, signedAt, 'failed', checks, certificateChain)
       }
@@ -181,24 +191,41 @@ async function verifySingleSignature(
         )
 
         if (sigResult.isValid) {
-          checks.integrity = createPassedCheck('文件完整性與簽章已驗證')
+          checks.integrity = createPassedCheck(
+            t('core.integrity.integrityAndSignatureVerified'),
+            undefined,
+            { key: 'core.integrity.integrityAndSignatureVerified' }
+          )
         } else {
           checks.integrity = createFailedCheck(
-            '簽章驗證失敗',
-            sigResult.error || '密碼學簽章與簽署屬性不符'
+            t('core.integrity.signatureVerificationFailed'),
+            sigResult.error || t('core.integrity.cryptoMismatch'),
+            { key: 'core.integrity.signatureVerificationFailed' }
           )
           return createSignatureResult(index, signerName, signedAt, 'failed', checks, certificateChain)
         }
       } else {
-        checks.integrity = createPassedCheck('文件完整性已驗證（僅摘要）')
+        checks.integrity = createPassedCheck(
+          t('core.integrity.integrityVerifiedDigestOnly'),
+          undefined,
+          { key: 'core.integrity.integrityVerifiedDigestOnly' }
+        )
       }
     } else {
       // Direct signature verification
       const sigResult = await verifyPkcs7Signature(pkcs7.signedData, signedBytes, 0)
       if (sigResult.isValid) {
-        checks.integrity = createPassedCheck('簽章已驗證')
+        checks.integrity = createPassedCheck(
+          t('core.integrity.signatureVerified'),
+          undefined,
+          { key: 'core.integrity.signatureVerified' }
+        )
       } else {
-        checks.integrity = createFailedCheck('簽章驗證失敗', sigResult.error)
+        checks.integrity = createFailedCheck(
+          t('core.integrity.signatureVerificationFailed'),
+          sigResult.error,
+          { key: 'core.integrity.signatureVerificationFailed' }
+        )
         return createSignatureResult(index, signerName, signedAt, 'failed', checks, certificateChain)
       }
     }
@@ -215,15 +242,28 @@ async function verifySingleSignature(
         // CAdES signing certificate mismatch — downgrade integrity to warning
         checks.integrity = {
           passed: true,
-          message: '文件完整性已驗證（CAdES 憑證雜湊不符）',
-          details: `預期：${signerInfo.signingCertificateHash}，實際：${certHashHex}`,
+          message: t('core.integrity.integrityVerifiedCadesHashMismatch'),
+          details: t('core.integrity.cadesHashDetails', {
+            expected: signerInfo.signingCertificateHash,
+            actual: certHashHex,
+          }),
+          i18nKey: 'core.integrity.integrityVerifiedCadesHashMismatch',
+          detailsI18nKey: 'core.integrity.cadesHashDetails',
+          detailsI18nParams: {
+            expected: signerInfo.signingCertificateHash,
+            actual: certHashHex,
+          },
         }
       }
     }
 
     // 4. Build and validate certificate chain
     if (!signerInfo.signerCertificate) {
-      checks.certificateChain = createFailedCheck('找不到簽署者憑證')
+      checks.certificateChain = createFailedCheck(
+        t('core.chain.signerCertNotFound'),
+        undefined,
+        { key: 'core.chain.signerCertNotFound' }
+      )
       return createSignatureResult(index, signerName, signedAt, 'failed', checks, certificateChain)
     }
 
@@ -258,31 +298,60 @@ async function verifySingleSignature(
 
     if (chain.isComplete && chainValidation.checks.signaturesValid.passed) {
       checks.certificateChain = createPassedCheck(
-        '憑證鏈完整且簽章已驗證',
-        `憑證鏈包含 ${chain.certificates.length} 張憑證，密碼學簽章全數通過`
+        t('core.chain.chainCompleteAndVerified'),
+        t('core.chain.chainCompleteWithCount', { count: chain.certificates.length }),
+        {
+          key: 'core.chain.chainCompleteAndVerified',
+          detailsKey: 'core.chain.chainCompleteWithCount',
+          detailsParams: { count: chain.certificates.length },
+        }
       )
     } else if (chain.isComplete) {
       // Chain is structurally complete but crypto verification failed
       // (e.g. unsupported algorithm). Treat as passed with warning.
       checks.certificateChain = createPassedCheck(
-        '憑證鏈完整',
-        `憑證鏈包含 ${chain.certificates.length} 張憑證（簽章驗證：${chainValidation.checks.signaturesValid.details || '部分演算法不支援'}）`
+        t('core.chain.chainComplete'),
+        t('core.chain.chainCompleteDetails', {
+          count: chain.certificates.length,
+          details: chainValidation.checks.signaturesValid.details || t('core.misc.partialAlgorithmUnsupported'),
+        }),
+        {
+          key: 'core.chain.chainComplete',
+          detailsKey: 'core.chain.chainCompleteDetails',
+          detailsParams: {
+            count: chain.certificates.length,
+            details: chainValidation.checks.signaturesValid.details || t('core.misc.partialAlgorithmUnsupported'),
+          },
+        }
       )
     } else {
-      checks.certificateChain = createFailedCheck('憑證鏈不完整')
+      checks.certificateChain = createFailedCheck(
+        t('core.chain.chainIncomplete'),
+        undefined,
+        { key: 'core.chain.chainIncomplete' }
+      )
     }
 
     // 5. Check trust root (chain-based: complete chain to self-signed root = trusted)
     if (chain.isComplete && chain.root) {
       const rootName = getCommonName(chain.root)
       checks.trustRoot = createPassedCheck(
-        '憑證鏈完整',
-        `根 CA：${rootName}`
+        t('core.trust.chainComplete'),
+        t('core.chain.rootCa', { name: rootName }),
+        {
+          key: 'core.trust.chainComplete',
+          detailsKey: 'core.chain.rootCa',
+          detailsParams: { name: rootName },
+        }
       )
     } else {
       checks.trustRoot = createFailedCheck(
-        '憑證鏈不完整',
-        '無法建立完整憑證鏈'
+        t('core.trust.chainIncomplete'),
+        t('core.trust.cannotBuildChain'),
+        {
+          key: 'core.trust.chainIncomplete',
+          detailsKey: 'core.trust.cannotBuildChain',
+        }
       )
     }
 
@@ -299,14 +368,30 @@ async function verifySingleSignature(
         timestampInfo = tsResult.info
         signedAt = tsResult.info.time
         checks.timestamp = createPassedCheck(
-          '時戳已驗證',
-          `時間：${tsResult.info.time.toISOString()}`
+          t('core.timestamp.verified'),
+          t('core.timestamp.timeLabel', { time: tsResult.info.time.toISOString() }),
+          {
+            key: 'core.timestamp.verified',
+            detailsKey: 'core.timestamp.timeLabel',
+            detailsParams: { time: tsResult.info.time.toISOString() },
+          }
         )
       } else {
-        checks.timestamp = createFailedCheck('時戳驗證失敗', tsResult.check.details)
+        checks.timestamp = createFailedCheck(
+          t('core.timestamp.verificationFailed'),
+          tsResult.check.details,
+          { key: 'core.timestamp.verificationFailed' }
+        )
       }
     } else if (!pkcs7.embeddedTimestamp) {
-      checks.timestamp = createFailedCheck('無時戳', '簽章未包含 RFC 3161 時戳')
+      checks.timestamp = createFailedCheck(
+        t('core.timestamp.noTimestamp'),
+        t('core.timestamp.noRfc3161'),
+        {
+          key: 'core.timestamp.noTimestamp',
+          detailsKey: 'core.timestamp.noRfc3161',
+        }
+      )
     }
 
     // 7. Check certificate validity
@@ -315,11 +400,26 @@ async function verifySingleSignature(
 
     if (isCertificateValid(signerCert, effectiveTime)) {
       checks.validity = createPassedCheck(
-        '簽署時憑證有效',
-        `有效期：${signerCert.notBefore.toLocaleDateString('zh-TW')} 至 ${signerCert.notAfter.toLocaleDateString('zh-TW')}`
+        t('core.validity.validAtSigning'),
+        t('core.validity.validityPeriod', {
+          from: signerCert.notBefore.toLocaleDateString(getLocale()),
+          to: signerCert.notAfter.toLocaleDateString(getLocale()),
+        }),
+        {
+          key: 'core.validity.validAtSigning',
+          detailsKey: 'core.validity.validityPeriod',
+          detailsParams: {
+            from: signerCert.notBefore.toLocaleDateString(getLocale()),
+            to: signerCert.notAfter.toLocaleDateString(getLocale()),
+          },
+        }
       )
     } else if (isCertificateValid(signerCert, new Date())) {
-      checks.validity = createPassedCheck('憑證目前有效')
+      checks.validity = createPassedCheck(
+        t('core.validity.currentlyValid'),
+        undefined,
+        { key: 'core.validity.currentlyValid' }
+      )
     } else {
       // Check if LTV can help
       const ltvResult = checkLtvCompleteness(
@@ -332,13 +432,19 @@ async function verifySingleSignature(
 
       if (expiredTrust.trusted) {
         checks.validity = createPassedCheck(
-          '憑證已過期但簽章具備 LTV',
-          expiredTrust.reason
+          t('core.validity.expiredWithLtv'),
+          expiredTrust.reason,
+          { key: 'core.validity.expiredWithLtv' }
         )
       } else {
         checks.validity = createFailedCheck(
-          '憑證已過期',
-          `過期日期：${signerCert.notAfter.toLocaleDateString('zh-TW')}`
+          t('core.validity.expired'),
+          t('core.validity.expiredDate', { date: signerCert.notAfter.toLocaleDateString(getLocale()) }),
+          {
+            key: 'core.validity.expired',
+            detailsKey: 'core.validity.expiredDate',
+            detailsParams: { date: signerCert.notAfter.toLocaleDateString(getLocale()) },
+          }
         )
       }
     }
@@ -364,16 +470,44 @@ async function verifySingleSignature(
 
     // Prefer embedded result if definitive (proves status at signing time for LTV)
     if (embeddedResult?.status === 'good') {
-      checks.revocation = createPassedCheck('憑證未被撤銷（內嵌資料）', embeddedResult.details)
+      checks.revocation = createPassedCheck(
+        t('core.revocation.notRevokedEmbedded'),
+        embeddedResult.details,
+        { key: 'core.revocation.notRevokedEmbedded', detailsKey: embeddedResult.detailsI18nKey, detailsParams: embeddedResult.detailsI18nParams }
+      )
     } else if (embeddedResult?.status === 'revoked') {
-      checks.revocation = createFailedCheck('憑證已被撤銷', embeddedResult.details)
+      checks.revocation = createFailedCheck(
+        t('core.revocation.revoked'),
+        embeddedResult.details,
+        { key: 'core.revocation.revoked', detailsKey: embeddedResult.detailsI18nKey, detailsParams: embeddedResult.detailsI18nParams }
+      )
     } else if (onlineResult.status === 'good') {
       const method = onlineResult.method === 'ocsp' ? 'OCSP' : 'CRL'
-      checks.revocation = createPassedCheck(`憑證未被撤銷（${method}）`, onlineResult.details)
+      checks.revocation = createPassedCheck(
+        t('core.revocation.notRevokedMethod', { method }),
+        onlineResult.details,
+        {
+          key: 'core.revocation.notRevokedMethod',
+          params: { method },
+          detailsKey: onlineResult.detailsI18nKey,
+          detailsParams: onlineResult.detailsI18nParams,
+        }
+      )
     } else if (onlineResult.status === 'revoked') {
-      checks.revocation = createFailedCheck('憑證已被撤銷', onlineResult.details)
+      checks.revocation = createFailedCheck(
+        t('core.revocation.revoked'),
+        onlineResult.details,
+        { key: 'core.revocation.revoked', detailsKey: onlineResult.detailsI18nKey, detailsParams: onlineResult.detailsI18nParams }
+      )
     } else {
-      checks.revocation = createFailedCheck('無法驗證撤銷狀態', 'OCSP 及 CRL 查詢均失敗')
+      checks.revocation = createFailedCheck(
+        t('core.revocation.cannotVerify'),
+        t('core.revocation.allFailed'),
+        {
+          key: 'core.revocation.cannotVerify',
+          detailsKey: 'core.revocation.allFailed',
+        }
+      )
     }
 
     // 9. LTV check (use merged revocation info including DSS)
@@ -388,8 +522,10 @@ async function verifySingleSignature(
     if (!ltvResult.check.passed && checks.revocation.passed && timestampInfo) {
       checks.ltv = {
         passed: true,
-        message: '已包含 LTV 資訊',
-        details: '具備時戳與撤銷驗證',
+        message: t('core.ltv.hasLtvInfo'),
+        details: t('core.ltv.withTimestampAndRevocation'),
+        i18nKey: 'core.ltv.hasLtvInfo',
+        detailsI18nKey: 'core.ltv.withTimestampAndRevocation',
       }
     } else {
       checks.ltv = ltvResult.check
@@ -417,8 +553,9 @@ async function verifySingleSignature(
     )
   } catch (error) {
     checks.integrity = createFailedCheck(
-      '驗證錯誤',
-      error instanceof Error ? error.message : '未知錯誤'
+      t('core.error.verificationError'),
+      error instanceof Error ? error.message : t('core.error.unknownError'),
+      { key: 'core.error.verificationError' }
     )
     return createSignatureResult(index, signerName, signedAt, 'failed', checks, certificateChain)
   }
@@ -436,13 +573,13 @@ async function verifyDocTimeStamp(
   index: number
 ): Promise<SignatureResult> {
   const checks: SignatureResult['checks'] = {
-    integrity: createFailedCheck('未驗證'),
-    certificateChain: createPassedCheck('DocTimeStamp'),
-    trustRoot: createPassedCheck('DocTimeStamp'),
-    validity: createPassedCheck('DocTimeStamp'),
-    revocation: createPassedCheck('DocTimeStamp'),
+    integrity: createFailedCheck(t('core.docTimestamp.notVerified'), undefined, { key: 'core.docTimestamp.notVerified' }),
+    certificateChain: createPassedCheck(t('core.docTimestamp.label'), undefined, { key: 'core.docTimestamp.label' }),
+    trustRoot: createPassedCheck(t('core.docTimestamp.label'), undefined, { key: 'core.docTimestamp.label' }),
+    validity: createPassedCheck(t('core.docTimestamp.label'), undefined, { key: 'core.docTimestamp.label' }),
+    revocation: createPassedCheck(t('core.docTimestamp.label'), undefined, { key: 'core.docTimestamp.label' }),
     timestamp: null,
-    ltv: createPassedCheck('DocTimeStamp'),
+    ltv: createPassedCheck(t('core.docTimestamp.label'), undefined, { key: 'core.docTimestamp.label' }),
   }
 
   try {
@@ -450,8 +587,9 @@ async function verifyDocTimeStamp(
     const byteRangeValidation = validateByteRange(pdfData, sigField.byteRange)
     if (!byteRangeValidation.isValid) {
       checks.integrity = createFailedCheck(
-        'ByteRange 驗證失敗',
-        byteRangeValidation.errors.join('; ')
+        t('core.docTimestamp.byteRangeFailed'),
+        byteRangeValidation.errors.join('; '),
+        { key: 'core.docTimestamp.byteRangeFailed' }
       )
       return createSignatureResult(index, 'DocTimeStamp', null, 'failed', checks, [])
     }
@@ -470,12 +608,25 @@ async function verifyDocTimeStamp(
       if (tsResultSha1.valid && tsResultSha1.info) {
         const tsaName = tsResultSha1.info.issuer || 'DocTimeStamp'
         checks.integrity = createPassedCheck(
-          'DocTimeStamp 已驗證',
-          `TSA：${tsaName}，時間：${tsResultSha1.info.time.toISOString()}`
+          t('core.docTimestamp.verified'),
+          t('core.docTimestamp.tsaTime', {
+            tsa: tsaName,
+            time: tsResultSha1.info.time.toISOString(),
+          }),
+          {
+            key: 'core.docTimestamp.verified',
+            detailsKey: 'core.docTimestamp.tsaTime',
+            detailsParams: { tsa: tsaName, time: tsResultSha1.info.time.toISOString() },
+          }
         )
         checks.timestamp = createPassedCheck(
-          '文件時戳已驗證',
-          `時間：${tsResultSha1.info.time.toISOString()}`
+          t('core.docTimestamp.timestampVerified'),
+          t('core.docTimestamp.timeLabel', { time: tsResultSha1.info.time.toISOString() }),
+          {
+            key: 'core.docTimestamp.timestampVerified',
+            detailsKey: 'core.docTimestamp.timeLabel',
+            detailsParams: { time: tsResultSha1.info.time.toISOString() },
+          }
         )
         return createSignatureResult(
           index,
@@ -492,12 +643,25 @@ async function verifyDocTimeStamp(
     if (tsResult.valid && tsResult.info) {
       const tsaName = tsResult.info.issuer || 'DocTimeStamp'
       checks.integrity = createPassedCheck(
-        'DocTimeStamp 已驗證',
-        `TSA：${tsaName}，時間：${tsResult.info.time.toISOString()}`
+        t('core.docTimestamp.verified'),
+        t('core.docTimestamp.tsaTime', {
+          tsa: tsaName,
+          time: tsResult.info.time.toISOString(),
+        }),
+        {
+          key: 'core.docTimestamp.verified',
+          detailsKey: 'core.docTimestamp.tsaTime',
+          detailsParams: { tsa: tsaName, time: tsResult.info.time.toISOString() },
+        }
       )
       checks.timestamp = createPassedCheck(
-        '文件時戳已驗證',
-        `時間：${tsResult.info.time.toISOString()}`
+        t('core.docTimestamp.timestampVerified'),
+        t('core.docTimestamp.timeLabel', { time: tsResult.info.time.toISOString() }),
+        {
+          key: 'core.docTimestamp.timestampVerified',
+          detailsKey: 'core.docTimestamp.timeLabel',
+          detailsParams: { time: tsResult.info.time.toISOString() },
+        }
       )
       return createSignatureResult(
         index,
@@ -512,15 +676,17 @@ async function verifyDocTimeStamp(
 
     // Timestamp verification failed
     checks.integrity = createFailedCheck(
-      'DocTimeStamp 驗證失敗',
-      tsResult.check.details
+      t('core.docTimestamp.verificationFailed'),
+      tsResult.check.details,
+      { key: 'core.docTimestamp.verificationFailed' }
     )
     checks.timestamp = tsResult.check
     return createSignatureResult(index, 'DocTimeStamp', null, 'failed', checks, [])
   } catch (error) {
     checks.integrity = createFailedCheck(
-      'DocTimeStamp 驗證錯誤',
-      error instanceof Error ? error.message : '未知錯誤'
+      t('core.docTimestamp.verificationError'),
+      error instanceof Error ? error.message : t('core.error.unknownError'),
+      { key: 'core.docTimestamp.verificationError' }
     )
     return createSignatureResult(index, 'DocTimeStamp', null, 'failed', checks, [])
   }
