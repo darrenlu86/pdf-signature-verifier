@@ -387,7 +387,7 @@ function extractOcspMeta(
       status: 'unknown',
       checkedAt: new Date(),
       method,
-      details: method === 'embedded' ? '憑證撤銷狀態未知' : 'Certificate status is unknown',
+      details: '憑證撤銷狀態未知',
       targetSerial,
       producedAt,
       thisUpdate,

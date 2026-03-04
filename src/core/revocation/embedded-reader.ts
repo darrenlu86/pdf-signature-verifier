@@ -133,7 +133,7 @@ export function isLtvComplete(
   if (!embeddedInfo) {
     for (const cert of chain) {
       if (!cert.isSelfSigned) {
-        missing.push(`Revocation info for ${getCommonName(cert.subject)}`)
+        missing.push(`${getCommonName(cert.subject)} 缺少撤銷資訊`)
       }
     }
     return { complete: false, missing }
@@ -145,7 +145,7 @@ export function isLtvComplete(
     const result = checkEmbeddedRevocationStatus(cert, embeddedInfo)
 
     if (result.status === 'unknown' || result.status === 'error') {
-      missing.push(`Revocation info for ${getCommonName(cert.subject)}`)
+      missing.push(`${getCommonName(cert.subject)} 缺少撤銷資訊`)
     }
   }
 

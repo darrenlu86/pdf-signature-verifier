@@ -123,14 +123,14 @@ export function canValidateAtDate(
   if (!ltvResult.hasLtv) {
     return {
       valid: false,
-      reason: 'No embedded revocation information',
+      reason: '無內嵌撤銷資訊',
     }
   }
 
   if (!ltvResult.details.hasTimestamp) {
     return {
       valid: false,
-      reason: 'No timestamp to establish signing time',
+      reason: '無時戳可確認簽署時間',
     }
   }
 
@@ -139,27 +139,27 @@ export function canValidateAtDate(
   if (from && targetDate < from) {
     return {
       valid: false,
-      reason: 'Target date is before revocation info validity',
+      reason: '目標日期早於撤銷資訊有效期',
     }
   }
 
   if (until && targetDate > until) {
     return {
       valid: false,
-      reason: 'Revocation information has expired',
+      reason: '撤銷資訊已過期',
     }
   }
 
   if (!ltvResult.isComplete) {
     return {
       valid: false,
-      reason: `Missing: ${ltvResult.details.missingItems.join(', ')}`,
+      reason: `缺少：${ltvResult.details.missingItems.join('、')}`,
     }
   }
 
   return {
     valid: true,
-    reason: 'Signature can be validated at target date',
+    reason: '簽章可於目標日期驗證',
   }
 }
 
@@ -168,14 +168,14 @@ export function canValidateAtDate(
  */
 export function getLtvStatusText(ltvResult: LtvCheckResult): string {
   if (ltvResult.isComplete) {
-    return 'LTV-enabled'
+    return 'LTV 已啟用'
   }
 
   if (ltvResult.hasLtv) {
-    return 'Partial LTV'
+    return 'LTV 部分啟用'
   }
 
-  return 'No LTV'
+    return '未啟用 LTV'
 }
 
 /**
@@ -185,29 +185,29 @@ export function getLtvDetailsText(ltvResult: LtvCheckResult): string[] {
   const lines: string[] = []
 
   if (ltvResult.details.hasTimestamp) {
-    lines.push('[OK] Timestamp present')
+    lines.push('[OK] 已包含時戳')
   } else {
-    lines.push('[FAIL] No timestamp')
+    lines.push('[FAIL] 無時戳')
   }
 
   if (ltvResult.details.hasOcsp) {
-    lines.push(`[OK] ${ltvResult.details.ocspCount} OCSP response(s) embedded`)
+    lines.push(`[OK] 內嵌 ${ltvResult.details.ocspCount} 個 OCSP 回應`)
   }
 
   if (ltvResult.details.hasCrl) {
-    lines.push(`[OK] ${ltvResult.details.crlCount} CRL(s) embedded`)
+    lines.push(`[OK] 內嵌 ${ltvResult.details.crlCount} 個 CRL`)
   }
 
   if (!ltvResult.details.hasOcsp && !ltvResult.details.hasCrl) {
-    lines.push('[FAIL] No revocation data embedded')
+    lines.push('[FAIL] 無內嵌撤銷資料')
   }
 
   if (ltvResult.details.missingItems.length > 0) {
-    lines.push(`Missing: ${ltvResult.details.missingItems.join(', ')}`)
+    lines.push(`缺少：${ltvResult.details.missingItems.join('、')}`)
   }
 
   if (ltvResult.details.validityWindow.until) {
-    lines.push(`Valid until: ${ltvResult.details.validityWindow.until.toLocaleDateString()}`)
+    lines.push(`有效至：${ltvResult.details.validityWindow.until.toLocaleDateString()}`)
   }
 
   return lines
@@ -225,7 +225,7 @@ export function canTrustExpiredWithLtv(
   if (new Date() <= certificate.notAfter) {
     return {
       trusted: true,
-      reason: 'Certificate is not expired',
+      reason: '憑證未過期',
     }
   }
 
@@ -233,7 +233,7 @@ export function canTrustExpiredWithLtv(
   if (!timestampInfo || !timestampInfo.time) {
     return {
       trusted: false,
-      reason: 'No timestamp to prove signing time',
+      reason: '無時戳可證明簽署時間',
     }
   }
 
@@ -241,7 +241,7 @@ export function canTrustExpiredWithLtv(
   if (timestampInfo.time < certificate.notBefore || timestampInfo.time > certificate.notAfter) {
     return {
       trusted: false,
-      reason: 'Timestamp is outside certificate validity period',
+      reason: '時戳不在憑證有效期間內',
     }
   }
 
@@ -249,12 +249,12 @@ export function canTrustExpiredWithLtv(
   if (!ltvResult.isComplete) {
     return {
       trusted: false,
-      reason: 'LTV information is incomplete',
+      reason: 'LTV 資訊不完整',
     }
   }
 
   return {
     trusted: true,
-    reason: 'Signature was created while certificate was valid (verified via LTV)',
+    reason: '簽章於憑證有效期間內建立（經 LTV 驗證）',
   }
 }
