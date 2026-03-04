@@ -3,7 +3,7 @@ import { defineConfig } from 'wxt'
 export default defineConfig({
   srcDir: 'src',
   modules: ['@wxt-dev/module-react'],
-  manifest: {
+  manifest: ({ browser }) => ({
     name: 'PDFtrust - PDF 數位簽章驗證工具',
     description: 'Verify PDF digital signatures — integrity, certificate chain, trust, timestamp, revocation & LTV. Supports global CAs.',
     version: '1.0.0',
@@ -21,17 +21,19 @@ export default defineConfig({
         matches: ['<all_urls>'],
       },
     ],
-    browser_specific_settings: {
-      gecko: {
-        id: 'pdftrust@darrenlu.com',
-        strict_min_version: '109.0',
-      },
-    },
-    data_collection_permissions: {
-      storage_synced_by_the_extension: false,
-      data_collected_by_the_extension: false,
-    },
-  },
+    browser_specific_settings: browser === 'firefox'
+      ? {
+          gecko: {
+            id: 'pdftrust@darrenlu.com',
+            strict_min_version: '109.0',
+            data_collection_permissions: {
+              storage_synced_by_the_extension: false,
+              data_collected_by_the_extension: false,
+            },
+          },
+        }
+      : undefined,
+  }),
   runner: {
     startUrls: ['https://example.com'],
   },
