@@ -5,7 +5,7 @@ export default defineConfig({
   modules: ['@wxt-dev/module-react'],
   manifest: {
     name: 'PDF Signature Verifier / PDF 數位簽章驗證器',
-    description: 'Verify PDF digital signatures — integrity, certificate chain, trust, timestamp, revocation & LTV. Supports global CAs and Taiwan PKI.',
+    description: 'Verify PDF digital signatures — integrity, certificate chain, trust, timestamp, revocation & LTV. Supports global CAs.',
     version: '1.0.0',
     permissions: ['activeTab', 'storage', 'downloads'],
     host_permissions: ['<all_urls>'],
