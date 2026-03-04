@@ -4,8 +4,8 @@ export default defineConfig({
   srcDir: 'src',
   modules: ['@wxt-dev/module-react'],
   manifest: {
-    name: 'PDF 數位簽章驗證',
-    description: 'Verify PDF digital signatures with Taiwan PKI trust roots (TWCA, GCA, MOICA)',
+    name: 'PDF Signature Verifier / PDF 數位簽章驗證器',
+    description: 'Verify PDF digital signatures — integrity, certificate chain, trust, timestamp, revocation & LTV. Supports global CAs and Taiwan PKI.',
     version: '1.0.0',
     permissions: ['activeTab', 'storage', 'downloads'],
     host_permissions: ['<all_urls>'],

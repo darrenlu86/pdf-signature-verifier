@@ -1,8 +1,8 @@
 {
   "app": {
     "title": "PDF Digital Signature Verifier",
-    "footer": "Supports TWCA, GCA, MOICA certificates",
-    "footerTech": "CMS/PKCS#7 Signature · X.509 Certificate Chain · RFC 3161 Timestamp",
+    "footer": "Supports global CAs and Taiwan PKI certificates",
+    "footerTech": "CMS/PKCS#7 Signature · X.509 Certificate Chain · RFC 3161 Timestamp · OCSP/CRL Revocation · LTV",
     "businessContact": "Business Inquiry / License"
   },
   "status": {
