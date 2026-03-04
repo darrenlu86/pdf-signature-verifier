@@ -1,9 +1,8 @@
 /**
  * Shared network helper.
  *
- * The extension declares host_permissions: ['<all_urls>'], so direct fetch()
- * works from every context (background service worker, popup, content script).
- * No chrome.runtime.sendMessage relay needed.
+ * In MV3, the background service worker can fetch() cross-origin without
+ * host_permissions. OCSP/CRL requests are made from the background context.
  */
 
 async function directFetchBytes(url: string, init?: RequestInit): Promise<Uint8Array | null> {

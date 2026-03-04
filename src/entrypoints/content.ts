@@ -2,7 +2,7 @@ import { t, setLocale, detectBrowserLocale } from '@/i18n'
 import type { Locale } from '@/i18n'
 
 export default defineContentScript({
-  matches: ['<all_urls>'],
+  matches: ['*://*/*.pdf', '*://*/*.PDF'],
   runAt: 'document_idle',
 
   main() {
@@ -26,24 +26,8 @@ export default defineContentScript({
     }
     initLocale()
 
-    // Detect PDF files in the page
-    detectPdfLinks()
+    // Detect embedded/viewer PDFs on the page
     detectEmbeddedPdfs()
-
-    // Watch for dynamically added content
-    const observer = new MutationObserver((mutations) => {
-      for (const mutation of mutations) {
-        if (mutation.addedNodes.length > 0) {
-          detectPdfLinks()
-          detectEmbeddedPdfs()
-        }
-      }
-    })
-
-    observer.observe(document.body, {
-      childList: true,
-      subtree: true,
-    })
 
     // Listen for panel messages
     window.addEventListener('message', (event) => {
@@ -153,22 +137,6 @@ function closePanel() {
 
 // ─── PDF Detection ──────────────────────────────────────────────
 
-function detectPdfLinks() {
-  const links = document.querySelectorAll('a[href$=".pdf"], a[href*=".pdf?"]')
-
-  links.forEach((link) => {
-    if (link.hasAttribute('data-pdf-verifier')) {
-      return
-    }
-
-    link.setAttribute('data-pdf-verifier', 'detected')
-
-    // Add verification button next to PDF links
-    const button = createVerifyButton(link as HTMLAnchorElement)
-    link.parentNode?.insertBefore(button, link.nextSibling)
-  })
-}
-
 function detectEmbeddedPdfs() {
   // Check for PDF viewer (Chrome's built-in PDF viewer)
   if (
@@ -239,58 +207,6 @@ function refreshIdleButtonLabels() {
     const labelKey = btn.dataset.pdfVerifierLabel || 'content.verifySignature'
     btn.innerHTML = `${svgSearch()} ${t(labelKey)}`
   })
-}
-
-function createVerifyButton(link: HTMLAnchorElement): HTMLButtonElement {
-  const button = document.createElement('button')
-  button.dataset.pdfVerifierState = 'idle'
-  button.dataset.pdfVerifierLabel = 'content.verifySignature'
-  button.innerHTML = `${svgSearch()} ${t('content.verifySignature')}`
-  button.style.cssText = `
-    margin-left: 8px;
-    padding: 2px 8px;
-    font-size: 12px;
-    background: #3b82f6;
-    color: white;
-    border: none;
-    border-radius: 4px;
-    cursor: pointer;
-    display: inline-flex;
-    align-items: center;
-    gap: 4px;
-  `
-
-  button.addEventListener('click', async (e) => {
-    e.preventDefault()
-    e.stopPropagation()
-
-    button.dataset.pdfVerifierState = 'busy'
-    button.innerHTML = `${svgLoading()} ${t('content.verifying')}`
-    button.disabled = true
-
-    try {
-      const result = await sendMessageWithTimeout<{ result?: unknown; error?: string }>({
-        action: 'verify-pdf-url',
-        url: link.href,
-        fileName: getFileName(link.href),
-      })
-
-      if (!result || result.error) {
-        button.innerHTML = `${svgX()} ${t('content.failed')}`
-        button.title = result?.error || t('content.noResponse')
-      } else {
-        updateButtonWithResult(button, result.result as VerifyResult)
-        showPanel(result.result)
-      }
-    } catch (error) {
-      button.innerHTML = `${svgX()} ${t('content.error')}`
-      button.title = error instanceof Error ? error.message : t('content.unknownError')
-    }
-
-    button.disabled = false
-  })
-
-  return button
 }
 
 function createEmbedVerifyButton(embed: HTMLEmbedElement): HTMLButtonElement {

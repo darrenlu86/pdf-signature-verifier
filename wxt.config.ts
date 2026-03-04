@@ -8,7 +8,6 @@ export default defineConfig({
     description: 'Verify PDF digital signatures — integrity, certificate chain, trust, timestamp, revocation & LTV. Supports global CAs.',
     version: '1.0.0',
     permissions: ['activeTab', 'storage', 'downloads'],
-    host_permissions: ['<all_urls>'],
     icons: {
       16: 'icon-16.png',
       32: 'icon-32.png',
@@ -18,7 +17,7 @@ export default defineConfig({
     web_accessible_resources: [
       {
         resources: ['panel.html', 'chunks/*', 'assets/*'],
-        matches: ['<all_urls>'],
+        matches: ['*://*/*.pdf', '*://*/*.PDF'],
       },
     ],
     browser_specific_settings: {
