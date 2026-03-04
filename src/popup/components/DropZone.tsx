@@ -1,4 +1,5 @@
 import { useState, useCallback, useRef } from 'react'
+import { UploadIcon } from './icons'
 
 interface DropZoneProps {
   onFileSelect: (file: File) => void
@@ -78,7 +79,9 @@ export function DropZone({ onFileSelect, disabled = false }: DropZoneProps) {
         disabled={disabled}
       />
 
-      <div className="text-3xl mb-2">📥</div>
+      <div className="flex justify-center mb-2">
+        <UploadIcon className="w-8 h-8 text-gray-400" />
+      </div>
       <div className="text-sm text-gray-600">
         拖放 PDF 檔案至此處驗證
       </div>

@@ -18,7 +18,7 @@ export async function checkCrlStatus(
       status: 'unknown',
       checkedAt: new Date(),
       method: 'crl',
-      details: 'No CRL distribution point in certificate',
+      details: '憑證未包含 CRL 發佈點',
     }
   }
 
@@ -36,7 +36,7 @@ export async function checkCrlStatus(
     status: 'error',
     checkedAt: new Date(),
     method: 'crl',
-    details: 'All CRL endpoints failed',
+    details: '所有 CRL 端點查詢失敗',
   }
 }
 
@@ -67,7 +67,7 @@ async function queryCrl(
       status: 'revoked',
       checkedAt: new Date(),
       method: 'crl',
-      details: 'Certificate serial number found in CRL',
+      details: `憑證序號存在於 CRL 撤銷清單中（簽發者：${crlInfo.issuer}）`,
     }
   }
 
@@ -78,7 +78,7 @@ async function queryCrl(
       status: 'unknown',
       checkedAt: new Date(),
       method: 'crl',
-      details: 'CRL is not yet valid',
+      details: `CRL 尚未生效（簽發者：${crlInfo.issuer}）`,
     }
   }
 
@@ -87,7 +87,7 @@ async function queryCrl(
       status: 'unknown',
       checkedAt: new Date(),
       method: 'crl',
-      details: 'CRL has expired',
+      details: `CRL 已過期（簽發者：${crlInfo.issuer}）`,
     }
   }
 
@@ -95,37 +95,16 @@ async function queryCrl(
     status: 'good',
     checkedAt: new Date(),
     method: 'crl',
-    details: 'Certificate not found in CRL',
+    details: `憑證未在 CRL 撤銷清單中（簽發者：${crlInfo.issuer}）`,
   }
 }
 
 /**
- * Fetch CRL via background script
+ * Fetch CRL via shared network helper
  */
 async function fetchCrl(url: string): Promise<Uint8Array | null> {
-  return new Promise((resolve) => {
-    if (typeof chrome !== 'undefined' && chrome.runtime) {
-      chrome.runtime.sendMessage(
-        {
-          action: 'fetch-crl',
-          url,
-        },
-        (response: { data: number[] } | null) => {
-          if (response?.data) {
-            resolve(new Uint8Array(response.data))
-          } else {
-            resolve(null)
-          }
-        }
-      )
-    } else {
-      // Direct fetch for testing
-      fetch(url)
-        .then((res) => res.arrayBuffer())
-        .then((buf) => resolve(new Uint8Array(buf)))
-        .catch(() => resolve(null))
-    }
-  })
+  const { fetchBinary } = await import('../network')
+  return fetchBinary(url)
 }
 
 /**
@@ -209,11 +188,15 @@ export function getCrlCacheKey(url: string): string {
 function getOidName(oid: string): string {
   const names: Record<string, string> = {
     '2.5.4.3': 'CN',
+    '2.5.4.5': 'serialNumber',
     '2.5.4.6': 'C',
     '2.5.4.7': 'L',
     '2.5.4.8': 'ST',
     '2.5.4.10': 'O',
     '2.5.4.11': 'OU',
+    '2.5.4.12': 'T',
+    '2.5.4.46': 'dnQualifier',
+    '1.2.840.113549.1.9.1': 'emailAddress',
   }
   return names[oid] || oid
 }

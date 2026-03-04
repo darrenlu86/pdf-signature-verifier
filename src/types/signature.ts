@@ -6,6 +6,7 @@ export interface PdfSignatureField {
   byteRange: ByteRange
   contents: Uint8Array
   subFilter: string
+  isDocTimeStamp?: boolean
   reason?: string
   location?: string
   contactInfo?: string
@@ -38,6 +39,7 @@ export interface SignerInfo {
   unsignedAttributes: UnsignedAttribute[]
   messageDigest: Uint8Array | null
   signingTime: Date | null
+  signingCertificateHash?: string
 }
 
 export interface SignedAttribute {
@@ -63,6 +65,7 @@ export interface EmbeddedTimestamp {
 export interface EmbeddedRevocationInfo {
   ocspResponses: Uint8Array[]
   crls: Uint8Array[]
+  certs: Uint8Array[]
 }
 
 export interface DigestResult {

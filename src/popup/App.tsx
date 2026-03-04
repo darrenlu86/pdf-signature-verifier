@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { StatusBadge, SignatureList, DropZone, LoadingSpinner, ExportButton } from './components'
 import { useVerification } from './hooks/useVerification'
 import { useSettings } from './hooks/useSettings'
+import { DocumentIcon, XIcon } from './components/icons'
 
 export function App() {
   const { result, isLoading, error, verify, reset } = useVerification()
@@ -10,7 +11,7 @@ export function App() {
 
   const handleFileSelect = async (file: File) => {
     await verify(file, {
-      checkOnlineRevocation: settings.checkOnlineRevocation,
+      checkOnlineRevocation: true,
     })
   }
 
@@ -50,15 +51,6 @@ export function App() {
             <label className="flex items-center gap-2 cursor-pointer">
               <input
                 type="checkbox"
-                checked={settings.checkOnlineRevocation}
-                onChange={(e) => updateSettings({ checkOnlineRevocation: e.target.checked })}
-                className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-              />
-              <span className="text-sm text-gray-700">線上查詢撤銷狀態</span>
-            </label>
-            <label className="flex items-center gap-2 cursor-pointer">
-              <input
-                type="checkbox"
                 checked={settings.autoVerify}
                 onChange={(e) => updateSettings({ autoVerify: e.target.checked })}
                 className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
@@ -75,7 +67,9 @@ export function App() {
           <LoadingSpinner />
         ) : error ? (
           <div className="text-center py-6">
-            <div className="text-4xl mb-2">❌</div>
+            <div className="flex justify-center mb-2">
+              <XIcon className="w-10 h-10 text-red-500" />
+            </div>
             <div className="text-red-600 font-medium mb-1">驗證失敗</div>
             <div className="text-sm text-gray-500">{error}</div>
             <button
@@ -89,7 +83,7 @@ export function App() {
           <div className="space-y-4">
             {/* File Info */}
             <div className="flex items-center gap-3">
-              <span className="text-2xl">📄</span>
+              <DocumentIcon className="w-6 h-6 text-gray-500 flex-shrink-0" />
               <div className="flex-1 min-w-0">
                 <div className="font-medium text-gray-900 truncate">{result.fileName}</div>
               </div>
@@ -122,7 +116,7 @@ export function App() {
 
       {/* Footer */}
       <footer className="px-4 py-2 text-center text-xs text-gray-400 border-t border-gray-100 space-y-1">
-        <div>支援所有 X.509 規格之憑證</div>
+        <div>CMS/PKCS#7 簽章驗證 · X.509 憑證鏈 · RFC 3161 時戳</div>
         <div>
           <a href="https://www.buymeacoffee.com/darrenlu" target="_blank" rel="noopener noreferrer">
             <img

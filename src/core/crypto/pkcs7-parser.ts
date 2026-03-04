@@ -25,6 +25,8 @@ const OID = {
   TST_INFO: '1.2.840.113549.1.9.16.1.4',
   ADOBE_REVOCATION_INFO_ARCHIVAL: '1.2.840.113583.1.1.8',
   ID_PKIX_OCSP_BASIC: '1.3.6.1.5.5.7.48.1.1',
+  SIGNING_CERTIFICATE: '1.2.840.113549.1.9.16.2.12',
+  SIGNING_CERTIFICATE_V2: '1.2.840.113549.1.9.16.2.47',
 }
 
 /**
@@ -128,6 +130,7 @@ async function parseSignerInfo(
   const signedAttributes: SignedAttribute[] = []
   let messageDigest: Uint8Array | null = null
   let signingTime: Date | null = null
+  let signingCertificateHash: string | undefined
 
   if (si.signedAttrs) {
     for (const attr of si.signedAttrs.attributes) {
@@ -144,6 +147,11 @@ async function parseSignerInfo(
 
         if (oid === OID.SIGNING_TIME) {
           signingTime = parseSigningTime(attr.values[0])
+        }
+
+        // CAdES: extract certHash from SigningCertificate or SigningCertificateV2
+        if (oid === OID.SIGNING_CERTIFICATE_V2 || oid === OID.SIGNING_CERTIFICATE) {
+          signingCertificateHash = extractSigningCertificateHash(attr.values[0])
         }
       }
 
@@ -182,6 +190,7 @@ async function parseSignerInfo(
     unsignedAttributes,
     messageDigest,
     signingTime,
+    signingCertificateHash,
   }
 }
 
@@ -315,7 +324,7 @@ function extractRevocationInfo(signedData: pkijs.SignedData): EmbeddedRevocation
     return null
   }
 
-  return { ocspResponses, crls }
+  return { ocspResponses, crls, certs: [] }
 }
 
 function extractFromRevocationInfoArchival(
@@ -341,6 +350,37 @@ function extractFromRevocationInfoArchival(
         }
       }
     }
+  }
+}
+
+/**
+ * Extract certHash from SigningCertificate or SigningCertificateV2 attribute.
+ * Structure: SEQUENCE { SEQUENCE OF ESSCertIDv2 { SEQUENCE { hashAlgorithm?, certHash OCTET STRING, ... } }, ... }
+ */
+function extractSigningCertificateHash(value: asn1js.LocalBaseBlock): string | undefined {
+  try {
+    // SigningCertificateV2 ::= SEQUENCE { certs SEQUENCE OF ESSCertIDv2, ... }
+    // ESSCertIDv2 ::= SEQUENCE { hashAlgorithm AlgorithmIdentifier DEFAULT sha-256, certHash OCTET STRING, ... }
+    if (!(value instanceof asn1js.Sequence)) return undefined
+
+    const certs = value.valueBlock.value[0]
+    if (!(certs instanceof asn1js.Sequence)) return undefined
+
+    // Get first ESSCertIDv2
+    const firstCertId = certs.valueBlock.value[0]
+    if (!(firstCertId instanceof asn1js.Sequence)) return undefined
+
+    // certHash is the first OCTET STRING in the sequence
+    // (hashAlgorithm may be omitted if default SHA-256)
+    for (const item of firstCertId.valueBlock.value) {
+      if (item instanceof asn1js.OctetString) {
+        return bufferToHex(item.valueBlock.valueHexView)
+      }
+    }
+
+    return undefined
+  } catch {
+    return undefined
   }
 }
 
@@ -397,6 +437,8 @@ function getAttributeName(oid: string): string {
     '1.2.840.113549.1.9.5': 'signingTime',
     '1.2.840.113549.1.9.16.2.14': 'timeStampToken',
     '1.2.840.113583.1.1.8': 'adobeRevocationInfoArchival',
+    '1.2.840.113549.1.9.16.2.12': 'signingCertificate',
+    '1.2.840.113549.1.9.16.2.47': 'signingCertificateV2',
   }
   return names[oid] || oid
 }

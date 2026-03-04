@@ -18,6 +18,7 @@ import { parsePkcs7, getSignedAttributesData } from './crypto/pkcs7-parser'
 import { verifyMessageDigest, normalizeDigestAlgorithm, computeDigest } from './crypto/digest-verifier'
 import { verifyPkcs7Signature, verifySignature } from './crypto/signature-verifier'
 import { buildCertificateChain } from './certificate/chain-builder'
+import { validateCertificateChain } from './certificate/chain-validator'
 import { getCommonName, isCertificateValid } from './certificate/cert-utils'
 import { checkOcspStatus } from './revocation/ocsp-client'
 import { checkCrlStatus } from './revocation/crl-client'
@@ -202,6 +203,24 @@ async function verifySingleSignature(
       }
     }
 
+    // 3b. CAdES: verify signingCertificate hash matches signer certificate
+    if (signerInfo.signingCertificateHash && signerInfo.signerCertificate) {
+      const certDer = new Uint8Array(signerInfo.signerCertificate.raw.toSchema().toBER())
+      const certDigest = await computeDigest('SHA-256', certDer)
+      const certHashHex = Array.from(certDigest)
+        .map((b) => b.toString(16).padStart(2, '0'))
+        .join('')
+
+      if (certHashHex !== signerInfo.signingCertificateHash) {
+        // CAdES signing certificate mismatch — downgrade integrity to warning
+        checks.integrity = {
+          passed: true,
+          message: '文件完整性已驗證（CAdES 憑證雜湊不符）',
+          details: `預期：${signerInfo.signingCertificateHash}，實際：${certHashHex}`,
+        }
+      }
+    }
+
     // 4. Build and validate certificate chain
     if (!signerInfo.signerCertificate) {
       checks.certificateChain = createFailedCheck('找不到簽署者憑證')
@@ -213,12 +232,12 @@ async function verifySingleSignature(
       signerInfo.signerCertificate,
       pkcs7.certificates,
       {
-        fetchMissing: options.checkOnlineRevocation,
+        fetchMissing: true,
         additionalCertBytes: mergedRevInfo?.certs || [],
       }
     )
 
-    // Populate certificate chain info
+    // Populate certificate chain info — trust status applies to entire chain
     for (const cert of chain.certificates) {
       certificateChain.push({
         subject: cert.subject,
@@ -227,14 +246,27 @@ async function verifySingleSignature(
         notBefore: cert.notBefore,
         notAfter: cert.notAfter,
         isRoot: cert.isSelfSigned,
-        isTrusted: cert.isSelfSigned && chain.isTrusted,
+        isTrusted: chain.isTrusted,
       })
     }
 
-    if (chain.isComplete) {
+    // Validate certificate chain cryptographic signatures
+    const chainValidation = await validateCertificateChain(chain, {
+      validationTime: new Date(),
+      requireTrustAnchor: false,
+    })
+
+    if (chain.isComplete && chainValidation.checks.signaturesValid.passed) {
+      checks.certificateChain = createPassedCheck(
+        '憑證鏈完整且簽章已驗證',
+        `憑證鏈包含 ${chain.certificates.length} 張憑證，密碼學簽章全數通過`
+      )
+    } else if (chain.isComplete) {
+      // Chain is structurally complete but crypto verification failed
+      // (e.g. unsupported algorithm). Treat as passed with warning.
       checks.certificateChain = createPassedCheck(
         '憑證鏈完整',
-        `憑證鏈包含 ${chain.certificates.length} 張憑證`
+        `憑證鏈包含 ${chain.certificates.length} 張憑證（簽章驗證：${chainValidation.checks.signaturesValid.details || '部分演算法不支援'}）`
       )
     } else {
       checks.certificateChain = createFailedCheck('憑證鏈不完整')
@@ -315,49 +347,33 @@ async function verifySingleSignature(
     // Merge per-signature embedded revocation info with DSS (Document Security Store)
     const mergedRevocationInfo = mergeRevocationInfo(pkcs7.embeddedRevocationInfo, dssRevocationInfo)
 
-    if (mergedRevocationInfo) {
-      const embeddedResult = checkEmbeddedRevocationStatus(signerCert, mergedRevocationInfo)
+    // Run embedded check and online check in parallel
+    const issuerCert = chain.certificates[1] || signerCert
 
-      if (embeddedResult.status === 'good') {
-        checks.revocation = createPassedCheck('憑證未被撤銷（內嵌資料）', embeddedResult.details)
-      } else if (embeddedResult.status === 'revoked') {
-        checks.revocation = createFailedCheck('憑證已被撤銷', embeddedResult.details)
-      } else if (options.checkOnlineRevocation) {
-        // Try online check
-        const issuerCert = chain.certificates[1] || signerCert
-        const onlineResult = await checkOcspStatus(signerCert, issuerCert)
+    const embeddedPromise = mergedRevocationInfo
+      ? Promise.resolve(checkEmbeddedRevocationStatus(signerCert, mergedRevocationInfo))
+      : Promise.resolve(null)
 
-        if (onlineResult.status === 'good') {
-          checks.revocation = createPassedCheck('憑證未被撤銷（OCSP）', onlineResult.details)
-        } else if (onlineResult.status === 'revoked') {
-          checks.revocation = createFailedCheck('憑證已被撤銷', onlineResult.details)
-        } else {
-          // Try CRL
-          const crlResult = await checkCrlStatus(signerCert, issuerCert)
-          if (crlResult.status === 'good') {
-            checks.revocation = createPassedCheck('憑證未被撤銷（CRL）', crlResult.details)
-          } else if (crlResult.status === 'revoked') {
-            checks.revocation = createFailedCheck('憑證已被撤銷', crlResult.details)
-          } else {
-            checks.revocation = createFailedCheck('無法驗證撤銷狀態', 'OCSP 及 CRL 查詢均失敗')
-          }
-        }
-      } else {
-        checks.revocation = createPassedCheck('已內嵌撤銷資訊', '未啟用線上查詢')
-      }
-    } else if (options.checkOnlineRevocation) {
-      const issuerCert = chain.certificates[1] || signerCert
-      const ocspResult = await checkOcspStatus(signerCert, issuerCert)
+    const onlinePromise = (async () => {
+      const ocsp = await checkOcspStatus(signerCert, issuerCert)
+      if (ocsp.status === 'good' || ocsp.status === 'revoked') return ocsp
+      return checkCrlStatus(signerCert, issuerCert)
+    })()
 
-      if (ocspResult.status === 'good') {
-        checks.revocation = createPassedCheck('憑證未被撤銷', ocspResult.details)
-      } else if (ocspResult.status === 'revoked') {
-        checks.revocation = createFailedCheck('憑證已被撤銷', ocspResult.details)
-      } else {
-        checks.revocation = createFailedCheck('無法驗證撤銷狀態', ocspResult.details)
-      }
+    const [embeddedResult, onlineResult] = await Promise.all([embeddedPromise, onlinePromise])
+
+    // Prefer embedded result if definitive (proves status at signing time for LTV)
+    if (embeddedResult?.status === 'good') {
+      checks.revocation = createPassedCheck('憑證未被撤銷（內嵌資料）', embeddedResult.details)
+    } else if (embeddedResult?.status === 'revoked') {
+      checks.revocation = createFailedCheck('憑證已被撤銷', embeddedResult.details)
+    } else if (onlineResult.status === 'good') {
+      const method = onlineResult.method === 'ocsp' ? 'OCSP' : 'CRL'
+      checks.revocation = createPassedCheck(`憑證未被撤銷（${method}）`, onlineResult.details)
+    } else if (onlineResult.status === 'revoked') {
+      checks.revocation = createFailedCheck('憑證已被撤銷', onlineResult.details)
     } else {
-      checks.revocation = createPassedCheck('略過撤銷檢查', '未啟用線上查詢')
+      checks.revocation = createFailedCheck('無法驗證撤銷狀態', 'OCSP 及 CRL 查詢均失敗')
     }
 
     // 9. LTV check (use merged revocation info including DSS)

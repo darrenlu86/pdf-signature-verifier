@@ -185,21 +185,21 @@ export function getLtvDetailsText(ltvResult: LtvCheckResult): string[] {
   const lines: string[] = []
 
   if (ltvResult.details.hasTimestamp) {
-    lines.push('✓ Timestamp present')
+    lines.push('[OK] Timestamp present')
   } else {
-    lines.push('✗ No timestamp')
+    lines.push('[FAIL] No timestamp')
   }
 
   if (ltvResult.details.hasOcsp) {
-    lines.push(`✓ ${ltvResult.details.ocspCount} OCSP response(s) embedded`)
+    lines.push(`[OK] ${ltvResult.details.ocspCount} OCSP response(s) embedded`)
   }
 
   if (ltvResult.details.hasCrl) {
-    lines.push(`✓ ${ltvResult.details.crlCount} CRL(s) embedded`)
+    lines.push(`[OK] ${ltvResult.details.crlCount} CRL(s) embedded`)
   }
 
   if (!ltvResult.details.hasOcsp && !ltvResult.details.hasCrl) {
-    lines.push('✗ No revocation data embedded')
+    lines.push('[FAIL] No revocation data embedded')
   }
 
   if (ltvResult.details.missingItems.length > 0) {

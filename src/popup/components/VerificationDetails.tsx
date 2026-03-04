@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import type { CheckResult, SignatureResult } from '@/types'
+import { CheckIcon, XIcon, ChevronRightIcon, ChevronDownIcon } from './icons'
 
 interface VerificationDetailsProps {
   checks: SignatureResult['checks']
@@ -16,7 +17,7 @@ interface CheckRowProps {
 function CheckRow({ label, check, summary }: CheckRowProps) {
   const [expanded, setExpanded] = useState(false)
 
-  const icon = check.passed ? '✓' : '✗'
+  const StatusIcon = check.passed ? CheckIcon : XIcon
   const iconColor = check.passed ? 'text-green-600' : 'text-red-600'
   const hasDetails = Boolean(check.details)
 
@@ -29,8 +30,12 @@ function CheckRow({ label, check, summary }: CheckRowProps) {
         }`}
       >
         {/* Expand indicator */}
-        <span className="text-gray-400 text-xs w-3 flex-shrink-0">
-          {hasDetails ? (expanded ? '▾' : '▸') : ' '}
+        <span className="text-gray-400 w-3 flex-shrink-0">
+          {hasDetails ? (
+            expanded ? <ChevronDownIcon className="w-3 h-3" /> : <ChevronRightIcon className="w-3 h-3" />
+          ) : (
+            <span className="inline-block w-3" />
+          )}
         </span>
 
         {/* Label */}
@@ -38,7 +43,7 @@ function CheckRow({ label, check, summary }: CheckRowProps) {
 
         {/* Short summary on right */}
         <span className={`${iconColor} flex-shrink-0 text-xs font-medium flex items-center gap-1`}>
-          <span className="font-bold">{icon}</span>
+          <StatusIcon className="w-3.5 h-3.5 inline-block" />
           <span className="max-w-[140px] truncate">{summary || check.message}</span>
         </span>
       </button>

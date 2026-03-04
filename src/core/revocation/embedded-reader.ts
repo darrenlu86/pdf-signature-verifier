@@ -19,14 +19,18 @@ export function checkEmbeddedRevocationStatus(
       status: 'unknown',
       checkedAt: new Date(),
       method: 'embedded',
-      details: 'No embedded revocation information in PDF',
+      details: 'PDF 中無內嵌撤銷資訊',
     }
   }
 
   // Try OCSP responses first (they're more specific)
+  // Only use OCSP responses whose certID serial matches the target certificate
   for (const ocspData of embeddedInfo.ocspResponses) {
     try {
       const result = parseEmbeddedOcspResponse(ocspData)
+      if (result.targetSerial && normalizeSerial(result.targetSerial) !== normalizeSerial(certificate.serialNumber)) {
+        continue
+      }
       if (result.status === 'good' || result.status === 'revoked') {
         return result
       }
@@ -36,12 +40,15 @@ export function checkEmbeddedRevocationStatus(
   }
 
   // Try CRLs
+  // For embedded/LTV CRLs, skip expiry check — the timestamp proves
+  // the CRL was valid at signing time. That's the whole point of LTV.
+  // Only use CRLs whose issuer matches the certificate's issuer.
   const serialNumber = certificate.serialNumber
   for (const crlData of embeddedInfo.crls) {
     try {
       const crlInfo = parseEmbeddedCrl(crlData)
 
-      if (!isCrlValid(crlInfo)) {
+      if (normalizeDN(crlInfo.issuer) !== normalizeDN(certificate.issuer)) {
         continue
       }
 
@@ -50,16 +57,16 @@ export function checkEmbeddedRevocationStatus(
           status: 'revoked',
           checkedAt: new Date(),
           method: 'embedded',
-          details: 'Certificate found in embedded CRL',
+          details: `憑證存在於內嵌 CRL 撤銷清單中（簽發者：${crlInfo.issuer}）`,
         }
       }
 
-      // If CRL is valid and cert not in it, it's good
+      // Cert not in CRL — good (LTV: trust embedded CRL regardless of expiry)
       return {
         status: 'good',
         checkedAt: new Date(),
         method: 'embedded',
-        details: 'Certificate not found in embedded CRL',
+        details: `憑證未在內嵌 CRL 撤銷清單中（簽發者：${crlInfo.issuer}）`,
       }
     } catch {
       continue
@@ -70,7 +77,7 @@ export function checkEmbeddedRevocationStatus(
     status: 'unknown',
     checkedAt: new Date(),
     method: 'embedded',
-    details: 'Could not determine status from embedded revocation info',
+    details: '無法從內嵌撤銷資訊判定狀態',
   }
 }
 
@@ -149,7 +156,10 @@ export function isLtvComplete(
 }
 
 /**
- * Get revocation info validity window
+ * Get revocation info validity window.
+ * Combines both CRL and OCSP time windows:
+ *   validFrom  = latest start across all sources (most restrictive)
+ *   validUntil = earliest end across all sources (most restrictive)
  */
 export function getRevocationInfoValidity(
   embeddedInfo: EmbeddedRevocationInfo | null
@@ -180,10 +190,55 @@ export function getRevocationInfoValidity(
     }
   }
 
+  // Check OCSP responses for validity windows
+  for (const ocspData of embeddedInfo.ocspResponses) {
+    try {
+      const result = parseEmbeddedOcspResponse(ocspData)
+
+      // Use thisUpdate (or producedAt as fallback) as the start of validity
+      const ocspStart = result.thisUpdate || result.producedAt
+      if (ocspStart) {
+        if (!validFrom || ocspStart > validFrom) {
+          validFrom = ocspStart
+        }
+      }
+
+      if (result.nextUpdate) {
+        if (!validUntil || result.nextUpdate < validUntil) {
+          validUntil = result.nextUpdate
+        }
+      }
+    } catch {
+      continue
+    }
+  }
+
   return { validFrom, validUntil }
 }
 
 function getCommonName(subject: string): string {
   const match = subject.match(/CN=([^,]+)/)
   return match ? match[1] : subject
+}
+
+/**
+ * Normalize a DN string for comparison: lowercase, remove extra spaces,
+ * sort RDN components so order doesn't matter, and normalize OID aliases.
+ */
+function normalizeDN(dn: string): string {
+  const normalized = dn
+    .replace(/\s*=\s*/g, '=')
+    .replace(/\s*,\s*/g, ',')
+    .toLowerCase()
+    .trim()
+
+  // Sort RDN components so order differences don't cause mismatches
+  return normalized.split(',').sort().join(',')
+}
+
+/**
+ * Normalize a serial number for comparison: lowercase, strip leading zeros
+ */
+function normalizeSerial(serial: string): string {
+  return serial.toLowerCase().replace(/^0+/, '')
 }

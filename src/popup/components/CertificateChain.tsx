@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import type { CertificateInfo } from '@/types'
+import { DocumentIcon, LockIcon, ChainIcon, CheckIcon, ChevronRightIcon, ChevronDownIcon } from './icons'
 
 interface CertificateChainProps {
   certificates: CertificateInfo[]
@@ -42,7 +43,7 @@ function CertificateItem({ certificate, index, total }: CertificateItemProps) {
   const isRoot = index === total - 1 && (certificate.isRoot || total > 1)
   const isIntermediate = !isEndEntity && !isRoot
 
-  const icon = isEndEntity ? '📄' : isRoot ? '🔐' : '🔗'
+  const Icon = isEndEntity ? DocumentIcon : isRoot ? LockIcon : ChainIcon
 
   const roleLabel = isRoot
     ? '根 CA'
@@ -80,7 +81,7 @@ function CertificateItem({ certificate, index, total }: CertificateItemProps) {
           onClick={() => setExpanded(!expanded)}
           className="w-full flex items-center gap-2 px-2 py-1.5 rounded hover:bg-gray-50 text-left group"
         >
-          <span className="flex-shrink-0">{icon}</span>
+          <Icon className="flex-shrink-0 text-gray-500" />
           <span className="text-sm font-medium text-gray-900 truncate flex-1">
             {getCN(certificate.subject)}
           </span>
@@ -97,11 +98,11 @@ function CertificateItem({ certificate, index, total }: CertificateItemProps) {
           )}
 
           {certificate.isTrusted && (
-            <span className="text-green-600 text-xs flex-shrink-0">✓</span>
+            <CheckIcon className="text-green-600 flex-shrink-0" />
           )}
 
-          <span className="text-gray-400 text-xs flex-shrink-0">
-            {expanded ? '▾' : '▸'}
+          <span className="text-gray-400 flex-shrink-0">
+            {expanded ? <ChevronDownIcon className="w-3 h-3" /> : <ChevronRightIcon className="w-3 h-3" />}
           </span>
         </button>
 
@@ -171,7 +172,7 @@ function CertificateItem({ certificate, index, total }: CertificateItemProps) {
             {/* Trust status */}
             {certificate.isTrusted && (
               <div className="flex items-center gap-1 text-green-600 pt-1 border-t border-gray-200">
-                <span>✓</span>
+                <CheckIcon className="inline-block" />
                 <span>此憑證存在於信任儲存庫中</span>
               </div>
             )}

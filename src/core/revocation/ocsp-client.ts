@@ -18,7 +18,7 @@ export async function checkOcspStatus(
       status: 'unknown',
       checkedAt: new Date(),
       method: 'ocsp',
-      details: 'No OCSP responder URL in certificate',
+      details: '憑證未包含 OCSP 回應端 URL',
     }
   }
 
@@ -36,7 +36,7 @@ export async function checkOcspStatus(
     status: 'error',
     checkedAt: new Date(),
     method: 'ocsp',
-    details: 'All OCSP responders failed',
+    details: '所有 OCSP 回應端查詢失敗',
   }
 }
 
@@ -59,8 +59,10 @@ async function queryOcsp(
     throw new Error('No response from OCSP responder')
   }
 
-  // Parse response
-  return parseOcspResponse(response)
+  // Parse response and append issuer info
+  const result = parseOcspResponse(response)
+  const issuerSuffix = `（簽發者：${issuerCertificate.subject}）`
+  return { ...result, details: `${result.details}${issuerSuffix}` }
 }
 
 /**
@@ -131,7 +133,7 @@ function parseOcspResponse(data: Uint8Array): RevocationResult {
       status: 'error',
       checkedAt: new Date(),
       method: 'ocsp',
-      details: `OCSP response status: ${getOcspStatusText(responseStatus)}`,
+      details: `OCSP 回應狀態：${getOcspStatusText(responseStatus)}`,
     }
   }
 
@@ -164,7 +166,7 @@ function parseOcspResponse(data: Uint8Array): RevocationResult {
       status: 'good',
       checkedAt: new Date(),
       method: 'ocsp',
-      details: 'Certificate is valid',
+      details: '憑證未被撤銷',
     }
   } else if (certStatus.idBlock.tagNumber === 1) {
     // Revoked
@@ -187,7 +189,7 @@ function parseOcspResponse(data: Uint8Array): RevocationResult {
       method: 'ocsp',
       revokedAt,
       reason,
-      details: `Certificate was revoked${reason ? ` (${reason})` : ''}`,
+      details: `憑證已被撤銷${reason ? `（${reason}）` : ''}`,
     }
   } else {
     // Unknown
@@ -195,45 +197,17 @@ function parseOcspResponse(data: Uint8Array): RevocationResult {
       status: 'unknown',
       checkedAt: new Date(),
       method: 'ocsp',
-      details: 'Certificate status is unknown',
+      details: '憑證撤銷狀態未知',
     }
   }
 }
 
 /**
- * Send OCSP request via background script
+ * Send OCSP request via shared network helper
  */
 async function sendOcspRequest(url: string, data: Uint8Array): Promise<Uint8Array | null> {
-  return new Promise((resolve) => {
-    if (typeof chrome !== 'undefined' && chrome.runtime) {
-      chrome.runtime.sendMessage(
-        {
-          action: 'ocsp-request',
-          url,
-          data: Array.from(data),
-        },
-        (response: { data: number[] } | null) => {
-          if (response?.data) {
-            resolve(new Uint8Array(response.data))
-          } else {
-            resolve(null)
-          }
-        }
-      )
-    } else {
-      // Direct fetch for testing
-      fetch(url, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/ocsp-request',
-        },
-        body: data,
-      })
-        .then((res) => res.arrayBuffer())
-        .then((buf) => resolve(new Uint8Array(buf)))
-        .catch(() => resolve(null))
-    }
-  })
+  const { fetchOcspResponse } = await import('../network')
+  return fetchOcspResponse(url, data)
 }
 
 function getOcspStatusText(status: number): string {
@@ -264,23 +238,30 @@ function getRevocationReason(code: number): RevocationReason {
   return reasons[code] || 'unspecified'
 }
 
+export interface EmbeddedOcspResult extends RevocationResult {
+  targetSerial?: string
+  producedAt?: Date
+  thisUpdate?: Date
+  nextUpdate?: Date
+}
+
 /**
  * Parse embedded OCSP response from PDF.
  * DSS (Document Security Store) may embed either:
  * 1. Full OCSPResponse (SEQUENCE { responseStatus, responseBytes })
  * 2. Raw BasicOCSPResponse directly (without OCSPResponse wrapper)
  */
-export function parseEmbeddedOcspResponse(data: Uint8Array): RevocationResult {
+export function parseEmbeddedOcspResponse(data: Uint8Array): EmbeddedOcspResult {
   // Try full OCSPResponse first
   try {
-    return parseOcspResponse(data)
+    return parseFullOcspResponseWithMeta(data)
   } catch {
     // Fall through to try BasicOCSPResponse
   }
 
   // Try parsing as raw BasicOCSPResponse (common in DSS)
   try {
-    return parseBasicOcspResponse(data)
+    return parseBasicOcspResponseWithMeta(data)
   } catch {
     // Fall through
   }
@@ -293,16 +274,45 @@ export function parseEmbeddedOcspResponse(data: Uint8Array): RevocationResult {
   }
 }
 
-/**
- * Parse a raw BasicOCSPResponse (without OCSPResponse wrapper)
- */
-function parseBasicOcspResponse(data: Uint8Array): RevocationResult {
+function parseFullOcspResponseWithMeta(data: Uint8Array): EmbeddedOcspResult {
+  const asn1Result = asn1js.fromBER(data.buffer)
+  if (asn1Result.offset === -1) {
+    throw new Error('Failed to parse OCSP response ASN.1')
+  }
+
+  const ocspResponse = new OCSPResponse({ schema: asn1Result.result })
+  const responseStatus = ocspResponse.responseStatus.valueBlock.valueDec
+  if (responseStatus !== 0 || !ocspResponse.responseBytes) {
+    const base = parseOcspResponse(data)
+    return base
+  }
+
+  const responseData = ocspResponse.responseBytes.response.valueBlock.valueHexView
+  const basicAsn1 = asn1js.fromBER(responseData)
+  if (basicAsn1.offset === -1) {
+    throw new Error('Failed to parse BasicOCSPResponse')
+  }
+
+  return extractOcspMeta(new BasicOCSPResponse({ schema: basicAsn1.result }), 'embedded')
+}
+
+function parseBasicOcspResponseWithMeta(data: Uint8Array): EmbeddedOcspResult {
   const asn1 = asn1js.fromBER(data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength))
   if (asn1.offset === -1) {
     throw new Error('Failed to parse BasicOCSPResponse ASN.1')
   }
 
-  const basicResponse = new BasicOCSPResponse({ schema: asn1.result })
+  return extractOcspMeta(new BasicOCSPResponse({ schema: asn1.result }), 'embedded')
+}
+
+/**
+ * Extract revocation result + metadata (targetSerial, producedAt, thisUpdate, nextUpdate)
+ * from a BasicOCSPResponse.
+ */
+function extractOcspMeta(
+  basicResponse: pkijs.BasicOCSPResponse,
+  method: 'ocsp' | 'embedded'
+): EmbeddedOcspResult {
   const tbsResponseData = basicResponse.tbsResponseData
 
   if (tbsResponseData.responses.length === 0) {
@@ -312,12 +322,39 @@ function parseBasicOcspResponse(data: Uint8Array): RevocationResult {
   const singleResponse = tbsResponseData.responses[0]
   const certStatus = singleResponse.certStatus
 
+  // Extract certID serial number for matching
+  let targetSerial: string | undefined
+  try {
+    const certId = singleResponse.certID
+    if (certId.serialNumber) {
+      targetSerial = bufferToHex(certId.serialNumber.valueBlock.valueHexView)
+    }
+  } catch {
+    // certID extraction is best-effort
+  }
+
+  // Extract time fields
+  // pkijs types these as Date directly
+  const producedAt = tbsResponseData.producedAt instanceof Date
+    ? tbsResponseData.producedAt
+    : (tbsResponseData.producedAt as { value?: Date } | undefined)?.value
+  const thisUpdate = singleResponse.thisUpdate instanceof Date
+    ? singleResponse.thisUpdate
+    : (singleResponse.thisUpdate as { value?: Date } | undefined)?.value
+  const nextUpdate = singleResponse.nextUpdate instanceof Date
+    ? singleResponse.nextUpdate
+    : (singleResponse.nextUpdate as { value?: Date } | undefined)?.value
+
   if (certStatus.idBlock.tagNumber === 0) {
     return {
       status: 'good',
       checkedAt: new Date(),
-      method: 'embedded',
-      details: '憑證未被撤銷（內嵌 OCSP）',
+      method,
+      details: method === 'embedded' ? '憑證未被撤銷（內嵌 OCSP）' : '憑證未被撤銷',
+      targetSerial,
+      producedAt,
+      thisUpdate,
+      nextUpdate,
     }
   } else if (certStatus.idBlock.tagNumber === 1) {
     const revokedInfo = certStatus as asn1js.Constructed
@@ -336,17 +373,32 @@ function parseBasicOcspResponse(data: Uint8Array): RevocationResult {
     return {
       status: 'revoked',
       checkedAt: new Date(),
-      method: 'embedded',
+      method,
       revokedAt,
       reason,
       details: `憑證已被撤銷${reason ? `（${reason}）` : ''}`,
+      targetSerial,
+      producedAt,
+      thisUpdate,
+      nextUpdate,
     }
   } else {
     return {
       status: 'unknown',
       checkedAt: new Date(),
-      method: 'embedded',
-      details: '憑證撤銷狀態未知',
+      method,
+      details: method === 'embedded' ? '憑證撤銷狀態未知' : 'Certificate status is unknown',
+      targetSerial,
+      producedAt,
+      thisUpdate,
+      nextUpdate,
     }
   }
+}
+
+function bufferToHex(buffer: ArrayBuffer | Uint8Array): string {
+  const bytes = buffer instanceof Uint8Array ? buffer : new Uint8Array(buffer)
+  return Array.from(bytes)
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('')
 }

@@ -2,6 +2,7 @@ import { useState } from 'react'
 import type { SignatureResult } from '@/types'
 import { VerificationDetails } from './VerificationDetails'
 import { CertificateChain } from './CertificateChain'
+import { CheckIcon, XIcon, WarningIcon } from './icons'
 
 interface SignatureCardProps {
   signature: SignatureResult
@@ -10,7 +11,7 @@ interface SignatureCardProps {
 const statusConfig = {
   trusted: {
     label: '簽章有效',
-    icon: '✓',
+    Icon: CheckIcon,
     badgeBg: 'bg-green-100',
     badgeText: 'text-green-800',
     borderColor: 'border-green-300',
@@ -18,7 +19,7 @@ const statusConfig = {
   },
   unknown: {
     label: '簽章未知',
-    icon: '⚠',
+    Icon: WarningIcon,
     badgeBg: 'bg-yellow-100',
     badgeText: 'text-yellow-800',
     borderColor: 'border-yellow-300',
@@ -26,7 +27,7 @@ const statusConfig = {
   },
   failed: {
     label: '簽章無效',
-    icon: '✗',
+    Icon: XIcon,
     badgeBg: 'bg-red-100',
     badgeText: 'text-red-800',
     borderColor: 'border-red-300',
@@ -38,6 +39,7 @@ export function SignatureCard({ signature }: SignatureCardProps) {
   const [expanded, setExpanded] = useState(true)
 
   const config = statusConfig[signature.status]
+  const { Icon } = config
 
   const formatDate = (date: Date | null) => {
     if (!date) return '未知'
@@ -71,7 +73,7 @@ export function SignatureCard({ signature }: SignatureCardProps) {
           <span
             className={`inline-flex items-center gap-1.5 ${config.badgeBg} ${config.badgeText} px-3 py-1 rounded-full text-sm font-bold flex-shrink-0`}
           >
-            <span>{config.icon}</span>
+            <Icon className="inline-block" />
             <span>{config.label}</span>
           </span>
 

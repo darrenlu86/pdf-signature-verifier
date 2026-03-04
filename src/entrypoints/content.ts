@@ -69,19 +69,17 @@ function showPanel(result: unknown) {
     border: none;
   `
 
-  iframe.addEventListener('load', () => {
-    // Wait for panel to signal it's ready, then send the result
-    const handlePanelReady = (event: MessageEvent) => {
-      if (event.data?.type === 'pdf-panel-ready') {
-        iframe.contentWindow?.postMessage(
-          { type: 'pdf-verification-result', result: pendingResult },
-          '*'
-        )
-        window.removeEventListener('message', handlePanelReady)
-      }
+  // Listen for panel ready signal BEFORE iframe loads to avoid race condition
+  const handlePanelReady = (event: MessageEvent) => {
+    if (event.data?.type === 'pdf-panel-ready') {
+      iframe.contentWindow?.postMessage(
+        { type: 'pdf-verification-result', result: pendingResult },
+        '*'
+      )
+      window.removeEventListener('message', handlePanelReady)
     }
-    window.addEventListener('message', handlePanelReady)
-  })
+  }
+  window.addEventListener('message', handlePanelReady)
 
   panelContainer.appendChild(iframe)
   document.body.appendChild(panelContainer)
@@ -161,11 +159,48 @@ function detectEmbeddedPdfs() {
   })
 }
 
+// ─── Message Helpers ─────────────────────────────────────────────
+
+const VERIFY_TIMEOUT_MS = 30_000
+
+function sendMessageWithTimeout<T>(
+  message: Record<string, unknown>,
+  timeoutMs: number = VERIFY_TIMEOUT_MS
+): Promise<T> {
+  return new Promise((resolve, reject) => {
+    // Check if extension context is still valid
+    if (!chrome.runtime?.id) {
+      reject(new Error('擴充功能已更新，請重新整理頁面'))
+      return
+    }
+
+    const timer = setTimeout(() => {
+      reject(new Error('驗證逾時，請稍後再試'))
+    }, timeoutMs)
+
+    try {
+      chrome.runtime.sendMessage(message, (response: T) => {
+        clearTimeout(timer)
+        // Always read lastError to suppress console warning
+        const err = chrome.runtime.lastError
+        if (err) {
+          reject(new Error(err.message))
+          return
+        }
+        resolve(response)
+      })
+    } catch {
+      clearTimeout(timer)
+      reject(new Error('擴充功能連線失敗，請重新整理頁面'))
+    }
+  })
+}
+
 // ─── Button Creators ────────────────────────────────────────────
 
 function createVerifyButton(link: HTMLAnchorElement): HTMLButtonElement {
   const button = document.createElement('button')
-  button.textContent = '🔍 驗證簽章'
+  button.innerHTML = `${svgSearch()} 驗證簽章`
   button.style.cssText = `
     margin-left: 8px;
     padding: 2px 8px;
@@ -175,34 +210,34 @@ function createVerifyButton(link: HTMLAnchorElement): HTMLButtonElement {
     border: none;
     border-radius: 4px;
     cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
   `
 
   button.addEventListener('click', async (e) => {
     e.preventDefault()
     e.stopPropagation()
 
-    button.textContent = '⏳ 驗證中...'
+    button.innerHTML = `${svgLoading()} 驗證中...`
     button.disabled = true
 
     try {
-      const response = await fetch(link.href)
-      const buffer = await response.arrayBuffer()
-
-      const result = await chrome.runtime.sendMessage({
-        action: 'verify-pdf',
-        data: Array.from(new Uint8Array(buffer)),
+      const result = await sendMessageWithTimeout<{ result?: unknown; error?: string }>({
+        action: 'verify-pdf-url',
+        url: link.href,
         fileName: getFileName(link.href),
       })
 
-      if (result.error) {
-        button.textContent = '❌ 驗證失敗'
-        button.title = result.error
+      if (!result || result.error) {
+        button.innerHTML = `${svgX()} 驗證失敗`
+        button.title = result?.error || '無回應'
       } else {
-        updateButtonWithResult(button, result.result)
+        updateButtonWithResult(button, result.result as VerifyResult)
         showPanel(result.result)
       }
     } catch (error) {
-      button.textContent = '❌ 錯誤'
+      button.innerHTML = `${svgX()} 錯誤`
       button.title = error instanceof Error ? error.message : '未知錯誤'
     }
 
@@ -214,9 +249,11 @@ function createVerifyButton(link: HTMLAnchorElement): HTMLButtonElement {
 
 function createEmbedVerifyButton(embed: HTMLEmbedElement): HTMLButtonElement {
   const button = document.createElement('button')
-  button.textContent = '🔍 驗證 PDF 簽章'
+  button.innerHTML = `${svgSearch()} 驗證 PDF 簽章`
   button.style.cssText = `
-    display: block;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
     margin: 8px 0;
     padding: 4px 12px;
     font-size: 14px;
@@ -230,31 +267,28 @@ function createEmbedVerifyButton(embed: HTMLEmbedElement): HTMLButtonElement {
   button.addEventListener('click', async () => {
     const src = embed.src || embed.getAttribute('data')
     if (!src) {
-      button.textContent = '❌ 無法取得 PDF'
+      button.innerHTML = `${svgX()} 無法取得 PDF`
       return
     }
 
-    button.textContent = '⏳ 驗證中...'
+    button.innerHTML = `${svgLoading()} 驗證中...`
     button.disabled = true
 
     try {
-      const response = await fetch(src)
-      const buffer = await response.arrayBuffer()
-
-      const result = await chrome.runtime.sendMessage({
-        action: 'verify-pdf',
-        data: Array.from(new Uint8Array(buffer)),
+      const result = await sendMessageWithTimeout<{ result?: unknown; error?: string }>({
+        action: 'verify-pdf-url',
+        url: src,
         fileName: getFileName(src),
       })
 
-      if (result.error) {
-        button.textContent = '❌ 驗證失敗'
+      if (!result || result.error) {
+        button.innerHTML = `${svgX()} 驗證失敗`
       } else {
-        updateButtonWithResult(button, result.result)
+        updateButtonWithResult(button, result.result as VerifyResult)
         showPanel(result.result)
       }
-    } catch (error) {
-      button.textContent = '❌ 錯誤'
+    } catch {
+      button.innerHTML = `${svgX()} 錯誤`
     }
 
     button.disabled = false
@@ -263,87 +297,84 @@ function createEmbedVerifyButton(embed: HTMLEmbedElement): HTMLButtonElement {
   return button
 }
 
+function getPdfViewerToolbarHeight(): number {
+  // Chrome's PDF viewer embed element sits below the toolbar;
+  // its top offset reveals the actual toolbar height.
+  const embed = document.querySelector('embed[type="application/pdf"]')
+  if (embed) {
+    const top = embed.getBoundingClientRect().top
+    if (top > 0) return top
+  }
+
+  // Firefox / other viewers: look for common toolbar containers
+  for (const sel of ['#toolbarContainer', '#toolbarViewer', '[role="toolbar"]']) {
+    const el = document.querySelector(sel)
+    if (el) {
+      const h = el.getBoundingClientRect().height
+      if (h > 0) return h
+    }
+  }
+
+  // Fallback: typical Chrome PDF viewer toolbar height
+  return 44
+}
+
 function injectPdfViewerButton() {
   // Only inject once
   if (document.getElementById('pdf-verifier-floating-button')) {
     return
   }
 
+  const BUTTON_HEIGHT = 36
+  const toolbarHeight = getPdfViewerToolbarHeight()
+  const topOffset = Math.max(0, Math.round((toolbarHeight - BUTTON_HEIGHT) / 2))
+
   const button = document.createElement('button')
   button.id = 'pdf-verifier-floating-button'
-  button.textContent = '🔍 驗證簽章'
+  button.innerHTML = `${svgSearch()} 驗證簽章`
   button.style.cssText = `
     position: fixed;
-    top: 16px;
+    top: ${topOffset}px;
     right: 16px;
     z-index: 999999;
     padding: 8px 16px;
     font-size: 14px;
+    line-height: 20px;
     background: #3b82f6;
     color: white;
     border: none;
     border-radius: 8px;
     cursor: pointer;
     box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    height: ${BUTTON_HEIGHT}px;
   `
 
   button.addEventListener('click', async () => {
-    button.textContent = '⏳ 驗證中...'
+    button.innerHTML = `${svgLoading()} 驗證中...`
     button.disabled = true
 
     try {
       const pdfUrl = window.location.href
       const fileName = getFileName(pdfUrl)
 
-      // Try fetching PDF from content script first
-      let pdfData: number[] | null = null
-      try {
-        const response = await fetch(pdfUrl)
-        if (response.ok) {
-          const buffer = await response.arrayBuffer()
-          // Verify it's actually PDF data (starts with %PDF)
-          const header = new Uint8Array(buffer.slice(0, 5))
-          if (header[0] === 0x25 && header[1] === 0x50 && header[2] === 0x44 && header[3] === 0x46) {
-            pdfData = Array.from(new Uint8Array(buffer))
-          }
-        }
-      } catch {
-        // Content script fetch failed (e.g. file:// URL), will try background
-      }
-
-      // If content script couldn't get PDF, ask background to fetch it
-      if (!pdfData) {
-        const fetchResult = await chrome.runtime.sendMessage({
-          action: 'fetch-pdf-url',
-          url: pdfUrl,
-        })
-        if (fetchResult?.data) {
-          pdfData = fetchResult.data
-        }
-      }
-
-      if (!pdfData) {
-        button.textContent = '❌ 無法取得 PDF'
-        button.title = '無法從此 URL 取得 PDF 資料'
-        button.disabled = false
-        return
-      }
-
-      const result = await chrome.runtime.sendMessage({
-        action: 'verify-pdf',
-        data: pdfData,
+      const result = await sendMessageWithTimeout<{ result?: unknown; error?: string }>({
+        action: 'verify-pdf-url',
+        url: pdfUrl,
         fileName,
       })
 
-      if (result.error) {
-        button.textContent = '❌ 驗證失敗'
-        button.title = result.error
+      if (!result || result.error) {
+        button.innerHTML = `${svgX()} 驗證失敗`
+        button.title = result?.error || '無回應'
       } else {
-        updateButtonWithResult(button, result.result)
+        updateButtonWithResult(button, result.result as VerifyResult)
         showPanel(result.result)
       }
     } catch (error) {
-      button.textContent = '❌ 錯誤'
+      button.innerHTML = `${svgX()} 錯誤`
       button.title = error instanceof Error ? error.message : '未知錯誤'
     }
 
@@ -355,40 +386,35 @@ function injectPdfViewerButton() {
 
 // ─── Result Display Helpers ─────────────────────────────────────
 
-function updateButtonWithResult(
-  button: HTMLButtonElement,
-  result: {
-    status: string
-    summary: string
-    signatures?: Array<{
-      signerName: string
-      certificateChain?: Array<{ subject: string; isRoot: boolean }>
-    }>
-  }
-) {
-  const status = result?.status
-  if (status === 'trusted') {
-    button.textContent = '✓ 文件可信'
-    button.style.background = '#22c55e'
-  } else if (status === 'failed') {
-    button.textContent = '✗ 驗證失敗'
-    button.style.background = '#ef4444'
-  } else {
-    button.textContent = '⚠ 來源未知'
-    button.style.background = '#eab308'
-  }
-
-  button.title = buildTooltip(result)
-}
-
-function buildTooltip(result: {
+interface VerifyResult {
   status: string
   summary: string
   signatures?: Array<{
     signerName: string
     certificateChain?: Array<{ subject: string; isRoot: boolean }>
   }>
-}): string {
+}
+
+function updateButtonWithResult(
+  button: HTMLButtonElement,
+  result: VerifyResult
+) {
+  const status = result?.status
+  if (status === 'trusted') {
+    button.innerHTML = `${svgCheck()} 文件可信`
+    button.style.background = '#22c55e'
+  } else if (status === 'failed') {
+    button.innerHTML = `${svgX()} 驗證失敗`
+    button.style.background = '#ef4444'
+  } else {
+    button.innerHTML = `${svgWarning()} 來源未知`
+    button.style.background = '#eab308'
+  }
+
+  button.title = buildTooltip(result)
+}
+
+function buildTooltip(result: VerifyResult): string {
   const signatures = result?.signatures
   if (!signatures || signatures.length === 0) {
     return result?.summary || ''
@@ -422,6 +448,28 @@ function buildTooltip(result: {
   parts.push(`${signatures.length} 個簽章${statusText}`)
 
   return parts.join(' | ')
+}
+
+// ─── Inline SVG Helpers (content script, no React) ──────────────
+
+function svgCheck(): string {
+  return '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;flex-shrink:0;"><path d="M3 8.5l3.5 3.5L13 4"/></svg>'
+}
+
+function svgX(): string {
+  return '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;flex-shrink:0;"><path d="M4 4l8 8M12 4l-8 8"/></svg>'
+}
+
+function svgWarning(): string {
+  return '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;flex-shrink:0;"><path d="M8 1.5L1 14h14L8 1.5z"/><path d="M8 6v3.5"/><circle cx="8" cy="12" r="0.5" fill="currentColor" stroke="none"/></svg>'
+}
+
+function svgSearch(): string {
+  return '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;flex-shrink:0;"><circle cx="7" cy="7" r="4.5"/><path d="M10.5 10.5L14 14"/></svg>'
+}
+
+function svgLoading(): string {
+  return '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" style="vertical-align:middle;flex-shrink:0;animation:pdf-verifier-spin 1s linear infinite;"><style>@keyframes pdf-verifier-spin{to{transform:rotate(360deg)}}</style><path d="M8 1.5a6.5 6.5 0 11-6.5 6.5" stroke-linecap="round"/></svg>'
 }
 
 function getFileName(url: string): string {

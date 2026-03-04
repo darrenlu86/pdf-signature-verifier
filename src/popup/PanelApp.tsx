@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import type { VerificationResult } from '@/types'
 import { StatusBadge, SignatureList, ExportButton } from './components'
+import { DocumentIcon } from './components/icons'
 
 export function PanelApp() {
   const [result, setResult] = useState<VerificationResult | null>(null)
@@ -23,8 +24,14 @@ export function PanelApp() {
     // Signal that the panel is ready to receive data
     window.parent.postMessage({ type: 'pdf-panel-ready' }, '*')
 
+    // Timeout: stop loading spinner after 15s if no result received
+    const timeout = setTimeout(() => {
+      setLoading(false)
+    }, 15_000)
+
     return () => {
       window.removeEventListener('message', handleMessage)
+      clearTimeout(timeout)
     }
   }, [])
 
@@ -47,7 +54,9 @@ export function PanelApp() {
     return (
       <div className="h-screen flex items-center justify-center">
         <div className="text-center text-gray-500">
-          <div className="text-4xl mb-2">📄</div>
+          <div className="flex justify-center mb-2">
+            <DocumentIcon className="w-10 h-10 text-gray-400" />
+          </div>
           <div>無驗證結果</div>
         </div>
       </div>
@@ -86,7 +95,7 @@ export function PanelApp() {
       <main className="p-4 space-y-4">
         {/* File Info */}
         <div className="flex items-center gap-3">
-          <span className="text-xl">📄</span>
+          <DocumentIcon className="w-5 h-5 text-gray-500 flex-shrink-0" />
           <div className="flex-1 min-w-0">
             <div className="font-medium text-gray-900 truncate text-sm">{result.fileName}</div>
           </div>
@@ -107,7 +116,7 @@ export function PanelApp() {
 
       {/* Footer */}
       <footer className="px-4 py-2 text-center text-xs text-gray-400 border-t border-gray-100 space-y-1">
-        <div>支援所有 X.509 規格之憑證</div>
+        <div>CMS/PKCS#7 簽章驗證 · X.509 憑證鏈 · RFC 3161 時戳</div>
         <div>
           <a href="https://www.buymeacoffee.com/darrenlu" target="_blank" rel="noopener noreferrer">
             <img

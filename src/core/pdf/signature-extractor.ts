@@ -1,4 +1,6 @@
 import type { PdfSignatureField, ByteRange, EmbeddedRevocationInfo } from '@/types'
+import { buildXRefTable, resolveObject, resolveStreamObject } from './xref-parser'
+import type { XRefTable } from './xref-parser'
 
 /**
  * Alternative signature extraction using raw PDF parsing
@@ -8,13 +10,16 @@ export function extractSignaturesFromRaw(data: Uint8Array): PdfSignatureField[] 
   const signatures: PdfSignatureField[] = []
   const text = new TextDecoder('latin1').decode(data)
 
-  // Find all signature dictionaries
-  const sigRegex = /\/Type\s*\/Sig\b/g
+  // Find all signature dictionaries (/Type /Sig and /Type /DocTimeStamp)
+  const sigRegex = /\/Type\s*\/(Sig|DocTimeStamp)\b/g
   let match: RegExpExecArray | null
 
   while ((match = sigRegex.exec(text)) !== null) {
     const sigField = extractSignatureAtPosition(data, text, match.index)
     if (sigField) {
+      if (match[1] === 'DocTimeStamp') {
+        sigField.isDocTimeStamp = true
+      }
       signatures.push(sigField)
     }
   }
@@ -58,11 +63,16 @@ function extractSignatureAtPosition(
   const contactInfo = extractStringField(dictText, 'ContactInfo')
   const name = extractStringField(dictText, 'Name') || `Signature`
 
+  // Detect DocTimeStamp via SubFilter
+  const isDocTimeStamp = /\/SubFilter\s*\/ETSI\.RFC3161/.test(dictText)
+    || /\/Type\s*\/DocTimeStamp/.test(dictText)
+
   return {
     name,
     byteRange,
     contents,
     subFilter,
+    isDocTimeStamp: isDocTimeStamp || undefined,
     reason,
     location,
     contactInfo,
@@ -284,6 +294,8 @@ export function combineSignedData(
 export async function extractDss(data: Uint8Array): Promise<EmbeddedRevocationInfo | null> {
   const text = new TextDecoder('latin1').decode(data)
 
+  // Build xref table for resolving objects in object streams (ObjStm)
+  const xref = await buildXRefTable(data)
   // Find /DSS dictionary reference in the catalog or as a direct dictionary
   const dssRefMatch = text.match(/\/DSS\s+(\d+)\s+(\d+)\s+R/)
   const dssDictMatch = text.match(/\/DSS\s*<</)
@@ -293,7 +305,11 @@ export async function extractDss(data: Uint8Array): Promise<EmbeddedRevocationIn
   if (dssRefMatch) {
     const objNum = parseInt(dssRefMatch[1])
     const genNum = parseInt(dssRefMatch[2])
+    // Try text-regex first, then fall back to xref+ObjStm extraction
     dssText = findObjectDict(text, objNum, genNum)
+    if (!dssText) {
+      dssText = await resolveObject(data, text, objNum, genNum, xref)
+    }
   } else if (dssDictMatch) {
     const startIdx = dssDictMatch.index! + '/DSS'.length
     const dictStart = text.indexOf('<<', startIdx)
@@ -311,34 +327,50 @@ export async function extractDss(data: Uint8Array): Promise<EmbeddedRevocationIn
 
   const ocspResponses: Uint8Array[] = []
   const crls: Uint8Array[] = []
+  const certs: Uint8Array[] = []
 
   // Extract /OCSPs array of stream references (top-level DSS uses plural keys)
-  const ocspRefs = extractArrayRefs(dssText, 'OCSPs')
+  const rawOcspRefs = extractArrayRefs(dssText, 'OCSPs')
+  const ocspRefs = await resolveArrayOrStreamRefs(rawOcspRefs, data, text, xref)
   for (const ref of ocspRefs) {
-    const streamData = await extractStreamData(data, text, ref.objNum, ref.genNum)
+    const streamData = await resolveStreamObject(data, text, ref.objNum, ref.genNum, xref)
+      ?? await extractStreamData(data, text, ref.objNum, ref.genNum)
     if (streamData) {
       ocspResponses.push(streamData)
     }
   }
 
   // Extract /CRLs array of stream references
-  const crlRefs = extractArrayRefs(dssText, 'CRLs')
+  const rawCrlRefs = extractArrayRefs(dssText, 'CRLs')
+  const crlRefs = await resolveArrayOrStreamRefs(rawCrlRefs, data, text, xref)
   for (const ref of crlRefs) {
-    const streamData = await extractStreamData(data, text, ref.objNum, ref.genNum)
+    const streamData = await resolveStreamObject(data, text, ref.objNum, ref.genNum, xref)
+      ?? await extractStreamData(data, text, ref.objNum, ref.genNum)
     if (streamData) {
       crls.push(streamData)
     }
   }
 
+  // Extract /Certs array of stream references (intermediate CA certificates)
+  const rawCertRefs = extractArrayRefs(dssText, 'Certs')
+  const certRefs = await resolveArrayOrStreamRefs(rawCertRefs, data, text, xref)
+  for (const ref of certRefs) {
+    const streamData = await resolveStreamObject(data, text, ref.objNum, ref.genNum, xref)
+      ?? await extractStreamData(data, text, ref.objNum, ref.genNum)
+    if (streamData) {
+      certs.push(streamData)
+    }
+  }
+
   // Also try extracting from VRI (Validation Related Information) sub-dictionaries
   // VRI uses SINGULAR keys: /OCSP, /CRL, /Cert
-  await extractFromVri(data, text, dssText, ocspResponses, crls)
+  await extractFromVri(data, text, dssText, ocspResponses, crls, xref)
 
-  if (ocspResponses.length === 0 && crls.length === 0) {
+  if (ocspResponses.length === 0 && crls.length === 0 && certs.length === 0) {
     return null
   }
 
-  return { ocspResponses, crls }
+  return { ocspResponses, crls, certs }
 }
 
 /**
@@ -350,16 +382,20 @@ async function extractFromVri(
   text: string,
   dssText: string,
   ocspResponses: Uint8Array[],
-  crls: Uint8Array[]
+  crls: Uint8Array[],
+  xref: XRefTable | null = null
 ): Promise<void> {
   // VRI as indirect reference
   const vriRefMatch = dssText.match(/\/VRI\s+(\d+)\s+(\d+)\s+R/)
   if (vriRefMatch) {
     const vriObjNum = parseInt(vriRefMatch[1])
     const vriGenNum = parseInt(vriRefMatch[2])
-    const vriDict = findObjectDict(text, vriObjNum, vriGenNum)
+    let vriDict = findObjectDict(text, vriObjNum, vriGenNum)
+    if (!vriDict) {
+      vriDict = await resolveObject(data, text, vriObjNum, vriGenNum, xref)
+    }
     if (vriDict) {
-      await extractVriEntries(data, text, vriDict, ocspResponses, crls)
+      await extractVriEntries(data, text, vriDict, ocspResponses, crls, xref)
     }
     return
   }
@@ -375,7 +411,7 @@ async function extractFromVri(
   if (vriDictEnd === -1) return
 
   const vriDict = dssText.slice(vriDictStart, vriDictEnd + 2)
-  await extractVriEntries(data, text, vriDict, ocspResponses, crls)
+  await extractVriEntries(data, text, vriDict, ocspResponses, crls, xref)
 }
 
 /**
@@ -387,7 +423,8 @@ async function extractVriEntries(
   text: string,
   vriDict: string,
   ocspResponses: Uint8Array[],
-  crls: Uint8Array[]
+  crls: Uint8Array[],
+  xref: XRefTable | null = null
 ): Promise<void> {
   // Find all sub-dictionaries (each VRI entry is /HASH << ... >>)
   // Also handle indirect refs: /HASH 123 0 R
@@ -396,9 +433,12 @@ async function extractVriEntries(
   while ((entryRefMatch = entryRefPattern.exec(vriDict)) !== null) {
     const entryObjNum = parseInt(entryRefMatch[1])
     const entryGenNum = parseInt(entryRefMatch[2])
-    const entryDict = findObjectDict(text, entryObjNum, entryGenNum)
+    let entryDict = findObjectDict(text, entryObjNum, entryGenNum)
+    if (!entryDict) {
+      entryDict = await resolveObject(data, text, entryObjNum, entryGenNum, xref)
+    }
     if (entryDict) {
-      await extractVriSingleEntry(data, text, entryDict, ocspResponses, crls)
+      await extractVriSingleEntry(data, text, entryDict, ocspResponses, crls, xref)
     }
   }
 
@@ -411,7 +451,7 @@ async function extractVriEntries(
     const dictEnd = findMatchingDictEnd(vriDict, dictStart)
     if (dictEnd === -1) continue
     const entryDict = vriDict.slice(dictStart, dictEnd + 2)
-    await extractVriSingleEntry(data, text, entryDict, ocspResponses, crls)
+    await extractVriSingleEntry(data, text, entryDict, ocspResponses, crls, xref)
   }
 }
 
@@ -423,20 +463,25 @@ async function extractVriSingleEntry(
   text: string,
   entryDict: string,
   ocspResponses: Uint8Array[],
-  crls: Uint8Array[]
+  crls: Uint8Array[],
+  xref: XRefTable | null = null
 ): Promise<void> {
   // VRI uses singular keys: /OCSP (not /OCSPs), /CRL (not /CRLs)
-  const ocspRefs = extractArrayRefs(entryDict, 'OCSP')
+  const rawOcspRefs = extractArrayRefs(entryDict, 'OCSP')
+  const ocspRefs = await resolveArrayOrStreamRefs(rawOcspRefs, data, text, xref)
   for (const ref of ocspRefs) {
-    const streamData = await extractStreamData(data, text, ref.objNum, ref.genNum)
+    const streamData = await resolveStreamObject(data, text, ref.objNum, ref.genNum, xref)
+      ?? await extractStreamData(data, text, ref.objNum, ref.genNum)
     if (streamData) {
       ocspResponses.push(streamData)
     }
   }
 
-  const crlRefs = extractArrayRefs(entryDict, 'CRL')
+  const rawCrlRefs = extractArrayRefs(entryDict, 'CRL')
+  const crlRefs = await resolveArrayOrStreamRefs(rawCrlRefs, data, text, xref)
   for (const ref of crlRefs) {
-    const streamData = await extractStreamData(data, text, ref.objNum, ref.genNum)
+    const streamData = await resolveStreamObject(data, text, ref.objNum, ref.genNum, xref)
+      ?? await extractStreamData(data, text, ref.objNum, ref.genNum)
     if (streamData) {
       crls.push(streamData)
     }
@@ -446,11 +491,9 @@ async function extractVriSingleEntry(
 /**
  * Find a PDF object's dictionary by object number.
  * Searches ALL occurrences and takes the LAST one (for incremental updates).
- * Uses flexible matching to handle various PDF formatting.
+ * Only returns dict content (<<...>>).
  */
 function findObjectDict(text: string, objNum: number, genNum: number): string | null {
-  // Use global search to find ALL occurrences, take the last one
-  // (incremental updates append new object definitions at the end)
   const objPattern = new RegExp(`(?:^|[^0-9])${objNum}\\s+${genNum}\\s+obj\\b`, 'g')
   let lastMatch: RegExpExecArray | null = null
   let match: RegExpExecArray | null
@@ -459,11 +502,8 @@ function findObjectDict(text: string, objNum: number, genNum: number): string | 
     lastMatch = match
   }
 
-  if (!lastMatch) {
-    return null
-  }
+  if (!lastMatch) return null
 
-  // Find the start of actual content after "obj"
   const objKeywordIdx = text.indexOf('obj', lastMatch.index)
   if (objKeywordIdx === -1) return null
   const objStart = objKeywordIdx + 3
@@ -472,16 +512,41 @@ function findObjectDict(text: string, objNum: number, genNum: number): string | 
   if (endObjIdx === -1) return null
 
   const dictStart = text.indexOf('<<', objStart)
-  if (dictStart === -1 || dictStart > endObjIdx) {
-    return null
-  }
+  if (dictStart === -1 || dictStart > endObjIdx) return null
 
   const dictEnd = findMatchingDictEnd(text, dictStart)
-  if (dictEnd === -1 || dictEnd > endObjIdx) {
-    return null
-  }
+  if (dictEnd === -1 || dictEnd > endObjIdx) return null
 
   return text.slice(dictStart, dictEnd + 2)
+}
+
+/**
+ * Find a PDF object's raw value (any type: dict, array, value, stream).
+ * Returns the trimmed content between `obj` and `endobj`/`stream`.
+ */
+function findObjectValue(text: string, objNum: number, genNum: number): string | null {
+  const objPattern = new RegExp(`(?:^|[^0-9])${objNum}\\s+${genNum}\\s+obj\\b`, 'g')
+  let lastMatch: RegExpExecArray | null = null
+  let match: RegExpExecArray | null
+
+  while ((match = objPattern.exec(text)) !== null) {
+    lastMatch = match
+  }
+
+  if (!lastMatch) return null
+
+  const objKeywordIdx = text.indexOf('obj', lastMatch.index)
+  if (objKeywordIdx === -1) return null
+  const objStart = objKeywordIdx + 3
+
+  const endObjIdx = text.indexOf('endobj', objStart)
+  if (endObjIdx === -1) return null
+
+  // Stop at 'stream' keyword if present (stream objects)
+  const streamIdx = text.indexOf('stream', objStart)
+  const contentEnd = (streamIdx !== -1 && streamIdx < endObjIdx) ? streamIdx : endObjIdx
+
+  return text.slice(objStart, contentEnd).trim()
 }
 
 function findMatchingDictEnd(text: string, start: number): number {
@@ -511,27 +576,75 @@ interface ObjRef {
   genNum: number
 }
 
+/**
+ * Extract object references from a PDF dictionary key.
+ * Handles three formats:
+ *   1. /Key [ 1 0 R 2 0 R ]           — inline array
+ *   2. /Key 86 0 R                     — single indirect ref (could be array object or stream)
+ *   3. /Key with value resolved later  — indirect array object in ObjStm
+ */
 function extractArrayRefs(dictText: string, key: string): ObjRef[] {
   const refs: ObjRef[] = []
 
-  // Match /Key [ 1 0 R 2 0 R ... ]
-  const arrayMatch = dictText.match(new RegExp(`\\/${key}\\s*\\[([^\\]]+)\\]`))
-  if (!arrayMatch) {
+  // Format 1: /Key [ 1 0 R 2 0 R ... ]
+  const arrayMatch = dictText.match(new RegExp(`\\/${key}(?![A-Za-z])\\s*\\[([^\\]]+)\\]`))
+  if (arrayMatch) {
+    const arrayContent = arrayMatch[1]
+    const refPattern = /(\d+)\s+(\d+)\s+R/g
+    let refMatch: RegExpExecArray | null
+    while ((refMatch = refPattern.exec(arrayContent)) !== null) {
+      refs.push({
+        objNum: parseInt(refMatch[1]),
+        genNum: parseInt(refMatch[2]),
+      })
+    }
     return refs
   }
 
-  const arrayContent = arrayMatch[1]
-  const refPattern = /(\d+)\s+(\d+)\s+R/g
-  let refMatch: RegExpExecArray | null
-
-  while ((refMatch = refPattern.exec(arrayContent)) !== null) {
+  // Format 2: /Key N G R (single indirect reference)
+  const singleRefMatch = dictText.match(new RegExp(`\\/${key}(?![A-Za-z])\\s+(\\d+)\\s+(\\d+)\\s+R`))
+  if (singleRefMatch) {
     refs.push({
-      objNum: parseInt(refMatch[1]),
-      genNum: parseInt(refMatch[2]),
+      objNum: parseInt(singleRefMatch[1]),
+      genNum: parseInt(singleRefMatch[2]),
     })
   }
 
   return refs
+}
+
+/**
+ * Resolve refs that might point to array objects (not streams).
+ * If a ref points to an array object like `[1 0 R 2 0 R]`, expand it.
+ * Otherwise keep the ref as-is (it's a direct stream ref).
+ */
+async function resolveArrayOrStreamRefs(
+  refs: ObjRef[],
+  data: Uint8Array,
+  text: string,
+  xref: XRefTable | null
+): Promise<ObjRef[]> {
+  const resolved: ObjRef[] = []
+
+  for (const ref of refs) {
+    // Try to get the raw object value (supports arrays, dicts, etc.)
+    const objText = findObjectValue(text, ref.objNum, ref.genNum)
+      ?? await resolveObject(data, text, ref.objNum, ref.genNum, xref)
+
+    if (objText && objText.trimStart().startsWith('[')) {
+      // It's an array object — parse refs from it
+      const refPattern = /(\d+)\s+(\d+)\s+R/g
+      let m: RegExpExecArray | null
+      while ((m = refPattern.exec(objText)) !== null) {
+        resolved.push({ objNum: parseInt(m[1]), genNum: parseInt(m[2]) })
+      }
+    } else {
+      // It's a stream or dict — keep the original ref
+      resolved.push(ref)
+    }
+  }
+
+  return resolved
 }
 
 async function extractStreamData(

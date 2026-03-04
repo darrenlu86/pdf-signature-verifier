@@ -36,19 +36,16 @@ export function ExportButton({ result }: ExportButtonProps) {
       // Wait for content to render
       await new Promise((resolve) => setTimeout(resolve, 500))
 
+      // Resize iframe to fit full content
+      const body = iframeDoc.body
+      const scrollH = body.scrollHeight
+      iframe.style.height = `${scrollH}px`
+
+      // Wait for resize to take effect
+      await new Promise((resolve) => setTimeout(resolve, 200))
+
       const { default: html2canvas } = await import('html2canvas')
       const { jsPDF } = await import('jspdf')
-
-      const body = iframeDoc.body
-      const canvas = await html2canvas(body, {
-        scale: 2,
-        useCORS: true,
-        logging: false,
-        width: 794,
-        windowWidth: 794,
-      })
-
-      document.body.removeChild(iframe)
 
       // A4 dimensions in mm
       const pageWidth = 210
@@ -57,35 +54,82 @@ export function ExportButton({ result }: ExportButtonProps) {
       const contentWidth = pageWidth - margin * 2
       const contentHeight = pageHeight - margin * 2
 
-      const imgWidth = contentWidth
-      const imgHeight = (canvas.height * imgWidth) / canvas.width
+      // Collect top-level sections for break-aware pagination
+      const sections = Array.from(body.children) as HTMLElement[]
+
+      // Calculate scale: how many mm per pixel
+      const pxPerMm = 794 / pageWidth
+      const pageContentPx = contentHeight * pxPerMm
+
+      // Group sections into pages based on their positions
+      const pages: { startPx: number; endPx: number }[] = []
+      let currentPageStart = 0
+
+      for (const section of sections) {
+        const top = section.offsetTop
+        const height = section.offsetHeight
+
+        // If this section would overflow the current page
+        if (top + height - currentPageStart > pageContentPx && top > currentPageStart) {
+          // End current page just before this section
+          pages.push({ startPx: currentPageStart, endPx: top })
+          currentPageStart = top
+        }
+      }
+      // Last page
+      pages.push({ startPx: currentPageStart, endPx: scrollH })
+
+      // Capture the full page as one canvas
+      const fullCanvas = await html2canvas(body, {
+        scale: 2,
+        useCORS: true,
+        logging: false,
+        width: 794,
+        height: scrollH,
+        windowWidth: 794,
+      })
+
+      document.body.removeChild(iframe)
 
       const pdf = new jsPDF('p', 'mm', 'a4')
-      let heightLeft = imgHeight
-      let position = margin
+      const canvasWidthPx = fullCanvas.width
+      const imgWidth = contentWidth
 
-      pdf.addImage(
-        canvas.toDataURL('image/png'),
-        'PNG',
-        margin,
-        position,
-        imgWidth,
-        imgHeight,
-      )
-      heightLeft -= contentHeight
+      for (let i = 0; i < pages.length; i++) {
+        if (i > 0) {
+          pdf.addPage()
+        }
 
-      while (heightLeft > 0) {
-        position = margin - (imgHeight - heightLeft)
-        pdf.addPage()
+        const { startPx, endPx } = pages[i]
+        const sliceHeightPx = endPx - startPx
+
+        // Create a canvas for this page slice
+        const pageCanvas = document.createElement('canvas')
+        pageCanvas.width = canvasWidthPx
+        pageCanvas.height = Math.round(sliceHeightPx * (canvasWidthPx / 794))
+
+        const ctx = pageCanvas.getContext('2d')
+        if (!ctx) continue
+
+        // Draw the relevant portion of the full canvas
+        const srcY = Math.round(startPx * (fullCanvas.height / scrollH))
+        const srcH = Math.round(sliceHeightPx * (fullCanvas.height / scrollH))
+
+        ctx.drawImage(
+          fullCanvas,
+          0, srcY, canvasWidthPx, srcH,
+          0, 0, pageCanvas.width, pageCanvas.height,
+        )
+
+        const imgHeight = (pageCanvas.height * imgWidth) / pageCanvas.width
         pdf.addImage(
-          canvas.toDataURL('image/png'),
+          pageCanvas.toDataURL('image/png'),
           'PNG',
           margin,
-          position,
+          margin,
           imgWidth,
           imgHeight,
         )
-        heightLeft -= contentHeight
       }
 
       const pdfBlob = pdf.output('blob')

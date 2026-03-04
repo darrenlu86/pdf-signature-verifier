@@ -12,10 +12,23 @@ export async function buildCertificateChain(
   intermediateCerts: ParsedCertificate[],
   options: ChainBuildOptions = {}
 ): Promise<CertificateChain> {
-  const { fetchMissing = false } = options
+  const { fetchMissing = false, additionalCertBytes = [] } = options
 
   const chain: ParsedCertificate[] = [endEntityCert]
   const available = [...intermediateCerts]
+
+  // Parse DSS /Certs and add to available pool (best-effort)
+  for (const certBytes of additionalCertBytes) {
+    try {
+      const parsed = await parseCertificateFromBytes(certBytes)
+      if (parsed && !available.some((c) => c.fingerprint === parsed.fingerprint)) {
+        available.push(parsed)
+      }
+    } catch {
+      continue
+    }
+  }
+
   let current = endEntityCert
   let isComplete = false
 
@@ -70,6 +83,7 @@ export async function buildCertificateChain(
 
 export interface ChainBuildOptions {
   fetchMissing?: boolean
+  additionalCertBytes?: Uint8Array[]
 }
 
 /**
@@ -106,11 +120,12 @@ function findIssuer(
 async function fetchIssuerCertificate(
   urls: string[]
 ): Promise<ParsedCertificate | null> {
+  const { fetchCertificateBytes } = await import('../network')
+
   for (const url of urls) {
     try {
-      const response = await sendBackgroundRequest('fetch-certificate', { url })
-      if (response?.data) {
-        const certData = new Uint8Array(response.data)
+      const certData = await fetchCertificateBytes(url)
+      if (certData) {
         return await parseCertificateFromBytes(certData)
       }
     } catch {
@@ -120,24 +135,6 @@ async function fetchIssuerCertificate(
   }
 
   return null
-}
-
-/**
- * Send request to background script for CORS-free fetch
- */
-async function sendBackgroundRequest(
-  action: string,
-  data: unknown
-): Promise<{ data: number[] } | null> {
-  return new Promise((resolve) => {
-    if (typeof chrome !== 'undefined' && chrome.runtime) {
-      chrome.runtime.sendMessage({ action, ...data }, (response) => {
-        resolve(response as { data: number[] } | null)
-      })
-    } else {
-      resolve(null)
-    }
-  })
 }
 
 /**
@@ -216,8 +213,8 @@ export function chainToDer(chain: CertificateChain): Uint8Array[] {
  */
 export function getChainSummary(chain: CertificateChain): string[] {
   return chain.certificates.map((cert, index) => {
-    const prefix = index === 0 ? '📄' : index === chain.certificates.length - 1 ? '🔐' : '🔗'
-    const trustMark = chain.isTrusted && index === chain.certificates.length - 1 ? ' ✓' : ''
+    const prefix = index === 0 ? '[EE]' : index === chain.certificates.length - 1 ? '[Root]' : '[CA]'
+    const trustMark = chain.isTrusted && index === chain.certificates.length - 1 ? ' [Trusted]' : ''
     return `${prefix} ${cert.subject}${trustMark}`
   })
 }
