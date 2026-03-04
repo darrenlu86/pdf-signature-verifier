@@ -1,6 +1,6 @@
 {
   "app": {
-    "title": "PDF 數位簽章驗證器",
+    "title": "PDFtrust",
     "footer": "支援全球 CA 及台灣 PKI 憑證",
     "footerTech": "CMS/PKCS#7 簽章 · X.509 憑證鏈 · RFC 3161 時戳 · OCSP/CRL 撤銷檢查 · LTV",
     "businessContact": "商業合作 / 購買授權"
@@ -268,7 +268,7 @@
   },
   "report": {
     "title": "PDF 數位簽章驗證報告",
-    "subtitle": "由 PDF 數位簽章驗證器產生",
+    "subtitle": "由 PDFtrust 產生",
     "fileName": "檔案名稱",
     "verifyTime": "驗證時間",
     "overallStatus": "總體狀態",
@@ -308,6 +308,6 @@
     "statusFailed": "驗證失敗",
     "statusUnknown": "未知",
     "reportGenTime": "報告產生時間：{time}",
-    "reportGenBy": "由 PDF 數位簽章驗證器 產生"
+    "reportGenBy": "由 PDFtrust 產生"
   }
 }

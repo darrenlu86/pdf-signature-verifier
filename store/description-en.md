@@ -1,4 +1,4 @@
-# PDF Signature Verifier
+# PDFtrust - PDF Digital Signature Verifier
 
 Verify PDF digital signatures directly in your browser — no server uploads, no external services. Everything runs locally for maximum privacy.
 

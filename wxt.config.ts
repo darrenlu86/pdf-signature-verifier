@@ -4,7 +4,7 @@ export default defineConfig({
   srcDir: 'src',
   modules: ['@wxt-dev/module-react'],
   manifest: {
-    name: 'PDF Signature Verifier / PDF 數位簽章驗證器',
+    name: 'PDFtrust - PDF 數位簽章驗證工具',
     description: 'Verify PDF digital signatures — integrity, certificate chain, trust, timestamp, revocation & LTV. Supports global CAs.',
     version: '1.0.0',
     permissions: ['activeTab', 'storage', 'downloads'],
