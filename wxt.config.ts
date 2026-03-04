@@ -7,7 +7,7 @@ export default defineConfig({
     name: 'PDF 數位簽章驗證',
     description: 'Verify PDF digital signatures with Taiwan PKI trust roots (TWCA, GCA, MOICA)',
     version: '1.0.0',
-    permissions: ['activeTab', 'storage'],
+    permissions: ['activeTab', 'storage', 'downloads'],
     host_permissions: ['<all_urls>'],
     icons: {
       16: 'icon-16.png',

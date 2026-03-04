@@ -250,11 +250,6 @@ export function generateVerificationReport(result: VerificationResult): string {
     <p>由 PDF 數位簽章驗證器 產生</p>
   </div>
 
-  <div class="no-print" style="text-align:center;margin-top:24px;">
-    <button onclick="window.print()" style="padding:8px 24px;background:#2563eb;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:0.9em;">
-      列印 / 儲存為 PDF
-    </button>
-  </div>
 </body>
 </html>`
 }

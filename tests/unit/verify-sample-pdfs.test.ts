@@ -22,6 +22,8 @@ describe('Sample PDF Verification', () => {
       if (sig.checks.timestamp) {
         console.log('  Timestamp:', sig.checks.timestamp.passed ? 'PASS' : 'FAIL', '-', sig.checks.timestamp.message, sig.checks.timestamp.details)
       }
+      console.log('  LTV:', sig.checks.ltv.passed ? 'PASS' : 'FAIL', '-', sig.checks.ltv.message, sig.checks.ltv.details || '')
+      console.log('  Revocation:', sig.checks.revocation.passed ? 'PASS' : 'FAIL', '-', sig.checks.revocation.message, sig.checks.revocation.details || '')
       console.log('  Certs:')
       for (const cert of sig.certificateChain) {
         console.log(`    ${cert.isRoot ? '[ROOT]' : '      '} ${cert.subject}`)
@@ -47,6 +49,8 @@ describe('Sample PDF Verification', () => {
       if (sig.checks.timestamp) {
         console.log('  Timestamp:', sig.checks.timestamp.passed ? 'PASS' : 'FAIL', '-', sig.checks.timestamp.message, sig.checks.timestamp.details)
       }
+      console.log('  LTV:', sig.checks.ltv.passed ? 'PASS' : 'FAIL', '-', sig.checks.ltv.message, sig.checks.ltv.details || '')
+      console.log('  Revocation:', sig.checks.revocation.passed ? 'PASS' : 'FAIL', '-', sig.checks.revocation.message, sig.checks.revocation.details || '')
       console.log('  Certs:')
       for (const cert of sig.certificateChain) {
         console.log(`    ${cert.isRoot ? '[ROOT]' : '      '} ${cert.subject}`)
