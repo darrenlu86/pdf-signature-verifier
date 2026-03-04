@@ -114,7 +114,9 @@
     "signerLabel": "簽署者：{names}",
     "rootCaLabel": "根 CA：{names}",
     "allValid": "全部有效",
-    "signatureCount": "{count} 個簽章{status}"
+    "signatureCount": "{count} 個簽章{status}",
+    "pdfDetected": "偵測到 PDF 文件",
+    "dismiss": "關閉"
   },
   "core": {
     "integrity": {

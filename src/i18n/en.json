@@ -114,7 +114,9 @@
     "signerLabel": "Signer: {names}",
     "rootCaLabel": "Root CA: {names}",
     "allValid": "All valid",
-    "signatureCount": "{count} signature(s) {status}"
+    "signatureCount": "{count} signature(s) {status}",
+    "pdfDetected": "PDF document detected",
+    "dismiss": "Dismiss"
   },
   "core": {
     "integrity": {

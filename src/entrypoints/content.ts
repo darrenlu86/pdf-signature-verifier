@@ -2,7 +2,7 @@ import { t, setLocale, detectBrowserLocale } from '@/i18n'
 import type { Locale } from '@/i18n'
 
 export default defineContentScript({
-  matches: ['*://*/*.pdf', '*://*/*.PDF'],
+  matches: ['<all_urls>'],
   runAt: 'document_idle',
 
   main() {
@@ -26,8 +26,24 @@ export default defineContentScript({
     }
     initLocale()
 
-    // Detect embedded/viewer PDFs on the page
+    // Detect PDF files in the page
+    detectPdfLinks()
     detectEmbeddedPdfs()
+
+    // Watch for dynamically added content
+    const observer = new MutationObserver((mutations) => {
+      for (const mutation of mutations) {
+        if (mutation.addedNodes.length > 0) {
+          detectPdfLinks()
+          detectEmbeddedPdfs()
+        }
+      }
+    })
+
+    observer.observe(document.body, {
+      childList: true,
+      subtree: true,
+    })
 
     // Listen for panel messages
     window.addEventListener('message', (event) => {
@@ -137,6 +153,22 @@ function closePanel() {
 
 // ─── PDF Detection ──────────────────────────────────────────────
 
+function detectPdfLinks() {
+  const links = document.querySelectorAll('a[href$=".pdf"], a[href*=".pdf?"]')
+
+  links.forEach((link) => {
+    if (link.hasAttribute('data-pdf-verifier')) {
+      return
+    }
+
+    link.setAttribute('data-pdf-verifier', 'detected')
+
+    // Add verification button next to PDF links
+    const button = createVerifyButton(link as HTMLAnchorElement)
+    link.parentNode?.insertBefore(button, link.nextSibling)
+  })
+}
+
 function detectEmbeddedPdfs() {
   // Check for PDF viewer (Chrome's built-in PDF viewer)
   if (
@@ -207,6 +239,58 @@ function refreshIdleButtonLabels() {
     const labelKey = btn.dataset.pdfVerifierLabel || 'content.verifySignature'
     btn.innerHTML = `${svgSearch()} ${t(labelKey)}`
   })
+}
+
+function createVerifyButton(link: HTMLAnchorElement): HTMLButtonElement {
+  const button = document.createElement('button')
+  button.dataset.pdfVerifierState = 'idle'
+  button.dataset.pdfVerifierLabel = 'content.verifySignature'
+  button.innerHTML = `${svgSearch()} ${t('content.verifySignature')}`
+  button.style.cssText = `
+    margin-left: 8px;
+    padding: 2px 8px;
+    font-size: 12px;
+    background: #3b82f6;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+  `
+
+  button.addEventListener('click', async (e) => {
+    e.preventDefault()
+    e.stopPropagation()
+
+    button.dataset.pdfVerifierState = 'busy'
+    button.innerHTML = `${svgLoading()} ${t('content.verifying')}`
+    button.disabled = true
+
+    try {
+      const result = await sendMessageWithTimeout<{ result?: unknown; error?: string }>({
+        action: 'verify-pdf-url',
+        url: link.href,
+        fileName: getFileName(link.href),
+      })
+
+      if (!result || result.error) {
+        button.innerHTML = `${svgX()} ${t('content.failed')}`
+        button.title = result?.error || t('content.noResponse')
+      } else {
+        updateButtonWithResult(button, result.result as VerifyResult)
+        showPanel(result.result)
+      }
+    } catch (error) {
+      button.innerHTML = `${svgX()} ${t('content.error')}`
+      button.title = error instanceof Error ? error.message : t('content.unknownError')
+    }
+
+    button.disabled = false
+  })
+
+  return button
 }
 
 function createEmbedVerifyButton(embed: HTMLEmbedElement): HTMLButtonElement {
@@ -286,38 +370,74 @@ function getPdfViewerToolbarHeight(): number {
 
 function injectPdfViewerButton() {
   // Only inject once
-  if (document.getElementById('pdf-verifier-floating-button')) {
+  if (document.getElementById('pdf-verifier-notification-bar')) {
     return
   }
 
-  const BUTTON_HEIGHT = 36
   const toolbarHeight = getPdfViewerToolbarHeight()
-  const topOffset = Math.max(0, Math.round((toolbarHeight - BUTTON_HEIGHT) / 2))
 
+  // Create notification bar container
+  const bar = document.createElement('div')
+  bar.id = 'pdf-verifier-notification-bar'
+  bar.style.cssText = `
+    position: fixed;
+    top: ${toolbarHeight}px;
+    left: 0;
+    right: 0;
+    z-index: 999999;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 6px 16px;
+    background: #eff6ff;
+    border-bottom: 1px solid #bfdbfe;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.08);
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  `
+
+  // Left section: icon + text
+  const info = document.createElement('span')
+  info.style.cssText = `
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 13px;
+    color: #1e40af;
+  `
+  info.innerHTML = `${svgDoc()} ${t('content.pdfDetected')}`
+
+  // Right section: verify button + close button
+  const actions = document.createElement('div')
+  actions.style.cssText = `
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  `
+
+  // Verify button
   const button = document.createElement('button')
   button.id = 'pdf-verifier-floating-button'
   button.dataset.pdfVerifierState = 'idle'
   button.dataset.pdfVerifierLabel = 'content.verifySignature'
   button.innerHTML = `${svgSearch()} ${t('content.verifySignature')}`
   button.style.cssText = `
-    position: fixed;
-    top: ${topOffset}px;
-    right: 16px;
-    z-index: 999999;
-    padding: 8px 16px;
-    font-size: 14px;
+    padding: 4px 14px;
+    font-size: 13px;
     line-height: 20px;
     background: #3b82f6;
     color: white;
     border: none;
-    border-radius: 8px;
+    border-radius: 6px;
     cursor: pointer;
-    box-shadow: 0 2px 8px rgba(0,0,0,0.2);
     display: inline-flex;
     align-items: center;
     gap: 4px;
-    height: ${BUTTON_HEIGHT}px;
+    font-family: inherit;
   `
+  button.addEventListener('mouseenter', () => { button.style.background = '#2563eb' })
+  button.addEventListener('mouseleave', () => {
+    if (button.dataset.pdfVerifierState === 'idle') button.style.background = '#3b82f6'
+  })
 
   button.addEventListener('click', async () => {
     button.dataset.pdfVerifierState = 'busy'
@@ -349,7 +469,29 @@ function injectPdfViewerButton() {
     button.disabled = false
   })
 
-  document.body.appendChild(button)
+  // Close/dismiss button
+  const closeBtn = document.createElement('button')
+  closeBtn.title = t('content.dismiss')
+  closeBtn.innerHTML = svgClose()
+  closeBtn.style.cssText = `
+    padding: 2px;
+    background: none;
+    border: none;
+    cursor: pointer;
+    color: #6b7280;
+    display: inline-flex;
+    align-items: center;
+    border-radius: 4px;
+  `
+  closeBtn.addEventListener('mouseenter', () => { closeBtn.style.color = '#1f2937' })
+  closeBtn.addEventListener('mouseleave', () => { closeBtn.style.color = '#6b7280' })
+  closeBtn.addEventListener('click', () => { bar.remove() })
+
+  actions.appendChild(button)
+  actions.appendChild(closeBtn)
+  bar.appendChild(info)
+  bar.appendChild(actions)
+  document.body.appendChild(bar)
 }
 
 // ─── Result Display Helpers ─────────────────────────────────────
@@ -434,6 +576,14 @@ function svgWarning(): string {
 
 function svgSearch(): string {
   return '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;flex-shrink:0;"><circle cx="7" cy="7" r="4.5"/><path d="M10.5 10.5L14 14"/></svg>'
+}
+
+function svgDoc(): string {
+  return '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;flex-shrink:0;"><path d="M9 1.5H4a1.5 1.5 0 00-1.5 1.5v10A1.5 1.5 0 004 14.5h8a1.5 1.5 0 001.5-1.5V6L9 1.5z"/><path d="M9 1.5V6h4.5"/></svg>'
+}
+
+function svgClose(): string {
+  return '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;flex-shrink:0;"><path d="M4 4l8 8M12 4l-8 8"/></svg>'
 }
 
 function svgLoading(): string {
