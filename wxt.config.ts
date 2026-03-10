@@ -18,7 +18,7 @@ export default defineConfig({
     web_accessible_resources: [
       {
         resources: ['panel.html', 'chunks/*', 'assets/*'],
-        matches: ['<all_urls>'],
+        matches: ['http://*/*', 'https://*/*'],
       },
     ],
     browser_specific_settings: browser === 'firefox'

@@ -30,7 +30,24 @@ export function PanelApp() {
   }, [])
 
   useEffect(() => {
-    // Listen for verification results from the content script
+    const isPopupWindow = window.location.search.includes('source=popup')
+
+    if (isPopupWindow) {
+      // Opened as popup window — read result from chrome.storage.session
+      chrome.storage.session.get('pdf-panel-result').then((stored) => {
+        const raw = stored['pdf-panel-result'] as VerificationResult | undefined
+        if (raw) {
+          setResult(restoreDates(raw))
+          chrome.storage.session.remove('pdf-panel-result')
+        }
+        setLoading(false)
+      }).catch(() => {
+        setLoading(false)
+      })
+      return
+    }
+
+    // Embedded as iframe — listen for verification results from the content script
     const handleMessage = (event: MessageEvent) => {
       if (event.data?.type === 'pdf-verification-result') {
         const raw = event.data.result as VerificationResult
@@ -58,7 +75,12 @@ export function PanelApp() {
   }, [])
 
   const handleClose = () => {
-    window.parent.postMessage({ type: 'pdf-panel-close' }, '*')
+    const isPopupWindow = window.location.search.includes('source=popup')
+    if (isPopupWindow) {
+      window.close()
+    } else {
+      window.parent.postMessage({ type: 'pdf-panel-close' }, '*')
+    }
   }
 
   if (loading) {

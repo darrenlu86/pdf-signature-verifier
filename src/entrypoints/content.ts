@@ -72,7 +72,17 @@ export default defineContentScript({
 let panelContainer: HTMLDivElement | null = null
 let pendingResult: unknown = null
 
+function isEdgeBrowser(): boolean {
+  return /\bEdg\//i.test(navigator.userAgent)
+}
+
 function showPanel(result: unknown) {
+  // Edge blocks extension iframes in content scripts — open popup directly
+  if (isEdgeBrowser()) {
+    openPanelAsPopup(result)
+    return
+  }
+
   // Close existing panel if open
   closePanel()
 
@@ -108,6 +118,7 @@ function showPanel(result: unknown) {
   // Listen for panel ready signal BEFORE iframe loads to avoid race condition
   const handlePanelReady = (event: MessageEvent) => {
     if (event.data?.type === 'pdf-panel-ready') {
+      clearTimeout(fallbackTimer)
       iframe.contentWindow?.postMessage(
         { type: 'pdf-verification-result', result: pendingResult },
         '*'
@@ -116,6 +127,13 @@ function showPanel(result: unknown) {
     }
   }
   window.addEventListener('message', handlePanelReady)
+
+  // Fallback: if iframe fails to load, open as popup window
+  const fallbackTimer = setTimeout(() => {
+    window.removeEventListener('message', handlePanelReady)
+    closePanel()
+    openPanelAsPopup(result)
+  }, 3000)
 
   panelContainer.appendChild(iframe)
   document.body.appendChild(panelContainer)
@@ -137,6 +155,13 @@ function showPanel(result: unknown) {
     }
   }
   document.addEventListener('keydown', handleEscape)
+}
+
+function openPanelAsPopup(result: unknown) {
+  chrome.runtime.sendMessage({
+    action: 'open-panel-window',
+    result,
+  })
 }
 
 function closePanel() {

@@ -41,6 +41,9 @@ async function handleMessage(
     case 'verify-pdf':
       return handlePdfVerification(message.data as number[], message.fileName as string)
 
+    case 'open-panel-window':
+      return handleOpenPanelWindow(message.result)
+
     default:
       return { error: `Unknown action: ${message.action}` }
   }
@@ -62,6 +65,19 @@ async function handlePdfUrlVerification(
   } catch (error) {
     return { error: error instanceof Error ? error.message : 'Verification failed' }
   }
+}
+
+async function handleOpenPanelWindow(
+  result: unknown
+): Promise<{ ok: boolean }> {
+  await chrome.storage.session.set({ 'pdf-panel-result': result })
+  await chrome.windows.create({
+    url: chrome.runtime.getURL('/panel.html?source=popup'),
+    type: 'popup',
+    width: 440,
+    height: 700,
+  })
+  return { ok: true }
 }
 
 async function handlePdfVerification(

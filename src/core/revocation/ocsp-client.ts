@@ -80,34 +80,31 @@ async function buildOcspRequest(
   certificate: ParsedCertificate,
   issuerCertificate: ParsedCertificate
 ): Promise<pkijs.OCSPRequest> {
-  // Create CertID
-  const certId = new CertID()
-
-  // Set hash algorithm (SHA-1 is standard for OCSP)
-  certId.hashAlgorithm = new pkijs.AlgorithmIdentifier({
-    algorithmId: '1.3.14.3.2.26', // SHA-1
-  })
-
   // Hash issuer name
   const issuerNameHash = await crypto.subtle.digest(
     'SHA-1',
     issuerCertificate.raw.subject.toSchema().toBER()
   )
-  certId.issuerNameHash = new asn1js.OctetString({
-    valueHex: issuerNameHash,
-  })
 
   // Hash issuer public key
   const issuerKeyHash = await crypto.subtle.digest(
     'SHA-1',
     issuerCertificate.raw.subjectPublicKeyInfo.subjectPublicKey.valueBlock.valueHexView
   )
-  certId.issuerKeyHash = new asn1js.OctetString({
-    valueHex: issuerKeyHash,
-  })
 
-  // Set serial number
-  certId.serialNumber = certificate.raw.serialNumber
+  // Create CertID with all fields at once; copy serialNumber to avoid
+  // reusing an ASN.1 node from the certificate's own tree (which causes
+  // "toBER is not a function" during serialization).
+  const certId = new CertID({
+    hashAlgorithm: new pkijs.AlgorithmIdentifier({
+      algorithmId: '1.3.14.3.2.26', // SHA-1
+    }),
+    issuerNameHash: new asn1js.OctetString({ valueHex: issuerNameHash }),
+    issuerKeyHash: new asn1js.OctetString({ valueHex: issuerKeyHash }),
+    serialNumber: new asn1js.Integer({
+      valueHex: certificate.raw.serialNumber.valueBlock.valueHexView,
+    }),
+  })
 
   // Create request
   const ocspRequest = new OCSPRequest()
