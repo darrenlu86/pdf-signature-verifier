@@ -81,7 +81,8 @@
   },
   "dropzone": {
     "message": "Drop PDF file here to verify",
-    "clickToSelect": "or click to select file"
+    "clickToSelect": "or click to select file",
+    "dragOnly": "Drag and drop a PDF file here"
   },
   "settings": {
     "title": "Settings",

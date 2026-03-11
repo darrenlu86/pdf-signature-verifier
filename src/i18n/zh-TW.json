@@ -81,7 +81,8 @@
   },
   "dropzone": {
     "message": "拖放 PDF 檔案至此處驗證",
-    "clickToSelect": "或點擊選擇檔案"
+    "clickToSelect": "或點擊選擇檔案",
+    "dragOnly": "請將 PDF 檔案拖放至此處"
   },
   "settings": {
     "title": "設定",

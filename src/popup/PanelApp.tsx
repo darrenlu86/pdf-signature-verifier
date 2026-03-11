@@ -33,12 +33,12 @@ export function PanelApp() {
     const isPopupWindow = window.location.search.includes('source=popup')
 
     if (isPopupWindow) {
-      // Opened as popup window — read result from chrome.storage.session
-      chrome.storage.session.get('pdf-panel-result').then((stored) => {
+      // Opened as popup window — read result from local storage
+      chrome.storage.local.get('pdf-panel-result').then((stored: Record<string, unknown>) => {
         const raw = stored['pdf-panel-result'] as VerificationResult | undefined
         if (raw) {
           setResult(restoreDates(raw))
-          chrome.storage.session.remove('pdf-panel-result')
+          chrome.storage.local.remove('pdf-panel-result')
         }
         setLoading(false)
       }).catch(() => {

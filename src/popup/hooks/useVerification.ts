@@ -1,6 +1,6 @@
 import { useState, useCallback } from 'react'
 import type { VerificationResult } from '@/types'
-import { verifyPdfSignatures, type VerificationOptions } from '@/core/verifier'
+import type { VerificationOptions } from '@/core/verifier'
 import { t } from '@/i18n'
 
 export interface UseVerificationReturn {
@@ -23,8 +23,11 @@ export function useVerification(): UseVerificationReturn {
 
     try {
       const arrayBuffer = await file.arrayBuffer()
+
+      // Run verification directly (works in both popup and tab contexts)
+      const { verifyPdfSignatures } = await import('@/core/verifier')
       const verificationResult = await verifyPdfSignatures(
-        arrayBuffer,
+        new Uint8Array(arrayBuffer),
         file.name,
         options
       )

@@ -19,7 +19,7 @@ export default defineBackground(() => {
   initLocale()
   console.log('PDF Signature Verifier background script loaded')
 
-  // Handle messages from popup and content scripts
+  // Handle messages from popup, content scripts, and upload window
   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     handleMessage(message, sender)
       .then(sendResponse)
@@ -39,10 +39,17 @@ async function handleMessage(
       return handlePdfUrlVerification(message.url as string, message.fileName as string)
 
     case 'verify-pdf':
-      return handlePdfVerification(message.data as number[], message.fileName as string)
+      return handlePdfVerification(
+        message.data as number[],
+        message.fileName as string,
+        message.options as Record<string, unknown> | undefined
+      )
 
     case 'open-panel-window':
       return handleOpenPanelWindow(message.result)
+
+    case 'open-upload-window':
+      return handleOpenUploadWindow()
 
     default:
       return { error: `Unknown action: ${message.action}` }
@@ -70,7 +77,7 @@ async function handlePdfUrlVerification(
 async function handleOpenPanelWindow(
   result: unknown
 ): Promise<{ ok: boolean }> {
-  await chrome.storage.session.set({ 'pdf-panel-result': result })
+  await chrome.storage.local.set({ 'pdf-panel-result': result })
   await chrome.windows.create({
     url: chrome.runtime.getURL('/panel.html?source=popup'),
     type: 'popup',
@@ -80,13 +87,24 @@ async function handleOpenPanelWindow(
   return { ok: true }
 }
 
+async function handleOpenUploadWindow(): Promise<{ ok: boolean }> {
+  await chrome.windows.create({
+    url: chrome.runtime.getURL('/popup.html?source=tab'),
+    type: 'popup',
+    width: 460,
+    height: 500,
+  })
+  return { ok: true }
+}
+
 async function handlePdfVerification(
   data: number[],
-  fileName: string
+  fileName: string,
+  options?: Record<string, unknown>
 ): Promise<{ result: unknown } | { error: string }> {
   try {
     const { verifyPdfSignatures } = await import('@/core/verifier')
-    const result = await verifyPdfSignatures(new Uint8Array(data), fileName)
+    const result = await verifyPdfSignatures(new Uint8Array(data), fileName, options)
     return { result }
   } catch (error) {
     return { error: error instanceof Error ? error.message : 'Verification failed' }

@@ -7,7 +7,7 @@ export default defineConfig({
     name: 'PDFtrust - PDF 數位簽章驗證工具',
     description: 'Verify PDF digital signatures — integrity, certificate chain, trust, timestamp, revocation & LTV. Supports global CAs.',
     version: '1.0.0',
-    permissions: ['activeTab', 'storage', 'downloads'],
+    permissions: ['activeTab', 'tabs', 'storage', 'downloads'],
     host_permissions: ['<all_urls>'],
     icons: {
       16: 'icon-16.png',
@@ -18,7 +18,7 @@ export default defineConfig({
     web_accessible_resources: [
       {
         resources: ['panel.html', 'chunks/*', 'assets/*'],
-        matches: ['http://*/*', 'https://*/*'],
+        matches: ['http://*/*', 'https://*/*', 'file:///*'],
       },
     ],
     browser_specific_settings: browser === 'firefox'

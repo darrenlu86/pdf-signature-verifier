@@ -19,12 +19,12 @@ describe('i18n', () => {
   describe('t function', () => {
     it('should return translated string for zh-TW', () => {
       setLocale('zh-TW')
-      expect(t('app.title')).toBe('PDF 數位簽章驗證')
+      expect(t('app.title')).toBe('PDFtrust')
     })
 
     it('should return translated string for en', () => {
       setLocale('en')
-      expect(t('app.title')).toBe('PDF Digital Signature Verifier')
+      expect(t('app.title')).toBe('PDFtrust')
     })
 
     it('should handle nested keys', () => {

@@ -5,11 +5,24 @@ import { useSettings } from './hooks/useSettings'
 import { DocumentIcon, XIcon } from './components/icons'
 import { t, setLocale, detectBrowserLocale, resolveSummary } from '@/i18n'
 
+const isFirefox = /Firefox\//i.test(navigator.userAgent)
+const isTabMode = typeof window !== 'undefined' && window.location.search.includes('source=tab')
+
+function getQueryParam(name: string): string | null {
+  try {
+    return new URLSearchParams(window.location.search).get(name)
+  } catch {
+    return null
+  }
+}
+
 export function App() {
   const { result, isLoading, error, verify, reset } = useVerification()
   const { settings, updateSettings } = useSettings()
   const [showSettings, setShowSettings] = useState(false)
   const [, forceUpdate] = useState(0)
+  const [pdfTabUrl, setPdfTabUrl] = useState<string | null>(getQueryParam('pdfUrl'))
+  const [verifyingPdfTab, setVerifyingPdfTab] = useState(false)
 
   useEffect(() => {
     if (settings.language) {
@@ -22,14 +35,94 @@ export function App() {
     forceUpdate(n => n + 1)
   }, [settings.language])
 
+  // Firefox: popup can't handle file picker or drag-drop, so immediately
+  // open a dedicated window and close the popup.
+  useEffect(() => {
+    if (!isFirefox || isTabMode) return
+
+    // Use callback style for maximum Firefox MV2 compatibility
+    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+      const tab = tabs?.[0]
+      let windowUrl = '/popup.html?source=tab'
+
+      if (tab?.url) {
+        try {
+          const pathname = new URL(tab.url).pathname.toLowerCase()
+          if (pathname.endsWith('.pdf')) {
+            windowUrl += '&pdfUrl=' + encodeURIComponent(tab.url)
+          }
+        } catch { /* ignore */ }
+      }
+
+      // Position near top-right corner
+      const screenW = window.screen.availWidth
+      const left = Math.max(0, screenW - 470)
+      const top = 80
+
+      chrome.windows.create({
+        url: chrome.runtime.getURL(windowUrl),
+        type: 'popup',
+        width: 460,
+        height: 500,
+        left,
+        top,
+      }, () => {
+        window.close()
+      })
+    })
+  }, [])
+
+  // Chrome: detect if current tab is a PDF for the popup
+  useEffect(() => {
+    if (isTabMode || isFirefox) return
+    try {
+      chrome.tabs?.query?.({ active: true, currentWindow: true }, (tabs) => {
+        const tab = tabs?.[0]
+        if (tab?.url) {
+          try {
+            const pathname = new URL(tab.url).pathname.toLowerCase()
+            if (pathname.endsWith('.pdf')) {
+              setPdfTabUrl(tab.url)
+            }
+          } catch { /* ignore */ }
+        }
+      })
+    } catch { /* ignore */ }
+  }, [])
+
+  const handleVerifyCurrentPdf = async () => {
+    if (!pdfTabUrl) return
+    setVerifyingPdfTab(true)
+
+    try {
+      const fileName = decodeURIComponent(
+        new URL(pdfTabUrl).pathname.split('/').pop() || 'document.pdf'
+      )
+
+      // Fetch PDF directly in popup context, then reuse the same verify flow as DropZone
+      const response = await fetch(pdfTabUrl)
+      if (!response.ok) {
+        setVerifyingPdfTab(false)
+        return
+      }
+      const buffer = await response.arrayBuffer()
+      const file = new File([buffer], fileName, { type: 'application/pdf' })
+      setVerifyingPdfTab(false)
+      await handleFileSelect(file)
+    } catch {
+      setVerifyingPdfTab(false)
+    }
+  }
+
   const handleFileSelect = async (file: File) => {
     await verify(file, {
       checkOnlineRevocation: true,
     })
   }
 
+
   return (
-    <div className="w-[400px] min-h-[300px] bg-white">
+    <div className={`${isTabMode ? 'max-w-[500px] mx-auto' : 'w-[400px]'} min-h-[300px] bg-white`}>
       {/* Header */}
       <header className="flex items-center justify-between px-4 py-3 border-b border-gray-200">
         <h1 className="text-lg font-semibold text-gray-900">{t('app.title')}</h1>
@@ -91,7 +184,7 @@ export function App() {
 
       {/* Main Content */}
       <main className="p-4">
-        {isLoading ? (
+        {isLoading || verifyingPdfTab ? (
           <LoadingSpinner />
         ) : error ? (
           <div className="text-center py-6">
@@ -138,7 +231,25 @@ export function App() {
             <SignatureList signatures={result.signatures} />
           </div>
         ) : (
-          <DropZone onFileSelect={handleFileSelect} />
+          <div className="space-y-4">
+            {/* PDF tab detected — show verify button */}
+            {pdfTabUrl && (
+              <div className="p-3 rounded-lg bg-blue-50 border border-blue-200">
+                <div className="text-sm text-blue-800 mb-2 flex items-center gap-2">
+                  <DocumentIcon className="w-4 h-4 flex-shrink-0" />
+                  {t('content.pdfDetected')}
+                </div>
+                <button
+                  onClick={handleVerifyCurrentPdf}
+                  className="w-full px-3 py-2 bg-blue-500 text-white text-sm rounded-md hover:bg-blue-600 transition-colors"
+                >
+                  {t('content.verifySignature')}
+                </button>
+              </div>
+            )}
+
+            <DropZone onFileSelect={handleFileSelect} />
+          </div>
         )}
       </main>
 

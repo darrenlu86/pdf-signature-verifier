@@ -194,12 +194,24 @@ function detectPdfLinks() {
   })
 }
 
+function isPdfViewerPage(): boolean {
+  // Chrome: contentType is application/pdf
+  if (document.contentType === 'application/pdf') return true
+
+  // URL path ends with .pdf (ignore query params and hash)
+  try {
+    const pathname = new URL(window.location.href).pathname
+    if (pathname.toLowerCase().endsWith('.pdf')) return true
+  } catch { /* ignore */ }
+
+  // Firefox PDF.js viewer: detect by viewer-specific elements
+  if (document.querySelector('#outerContainer #viewerContainer')) return true
+
+  return false
+}
+
 function detectEmbeddedPdfs() {
-  // Check for PDF viewer (Chrome's built-in PDF viewer)
-  if (
-    document.contentType === 'application/pdf' ||
-    window.location.href.endsWith('.pdf')
-  ) {
+  if (isPdfViewerPage()) {
     injectPdfViewerButton()
   }
 
@@ -272,9 +284,11 @@ function createVerifyButton(link: HTMLAnchorElement): HTMLButtonElement {
   button.dataset.pdfVerifierLabel = 'content.verifySignature'
   button.innerHTML = `${svgSearch()} ${t('content.verifySignature')}`
   button.style.cssText = `
+    all: initial;
     margin-left: 8px;
     padding: 2px 8px;
     font-size: 12px;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
     background: #3b82f6;
     color: white;
     border: none;
@@ -283,6 +297,11 @@ function createVerifyButton(link: HTMLAnchorElement): HTMLButtonElement {
     display: inline-flex;
     align-items: center;
     gap: 4px;
+    line-height: normal;
+    direction: ltr;
+    text-decoration: none;
+    white-space: nowrap;
+    box-sizing: border-box;
   `
 
   button.addEventListener('click', async (e) => {
@@ -324,17 +343,24 @@ function createEmbedVerifyButton(embed: HTMLEmbedElement): HTMLButtonElement {
   button.dataset.pdfVerifierLabel = 'content.verifyPdfSignature'
   button.innerHTML = `${svgSearch()} ${t('content.verifyPdfSignature')}`
   button.style.cssText = `
+    all: initial;
     display: inline-flex;
     align-items: center;
     gap: 4px;
     margin: 8px 0;
     padding: 4px 12px;
     font-size: 14px;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
     background: #3b82f6;
     color: white;
     border: none;
     border-radius: 4px;
     cursor: pointer;
+    line-height: normal;
+    direction: ltr;
+    text-decoration: none;
+    white-space: nowrap;
+    box-sizing: border-box;
   `
 
   button.addEventListener('click', async () => {
@@ -446,6 +472,7 @@ function injectPdfViewerButton() {
   button.dataset.pdfVerifierLabel = 'content.verifySignature'
   button.innerHTML = `${svgSearch()} ${t('content.verifySignature')}`
   button.style.cssText = `
+    all: initial;
     padding: 4px 14px;
     font-size: 13px;
     line-height: 20px;
@@ -457,7 +484,11 @@ function injectPdfViewerButton() {
     display: inline-flex;
     align-items: center;
     gap: 4px;
-    font-family: inherit;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    direction: ltr;
+    text-decoration: none;
+    white-space: nowrap;
+    box-sizing: border-box;
   `
   button.addEventListener('mouseenter', () => { button.style.background = '#2563eb' })
   button.addEventListener('mouseleave', () => {
