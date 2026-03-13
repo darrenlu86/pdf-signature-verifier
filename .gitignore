@@ -40,5 +40,9 @@ test-results/
 *.tgz
 .cache/
 
+# Store assets (screenshots are generated, not tracked)
+store/screenshots/
+store/*.py
+
 # Sample PDFs
 PDF_Sample/
