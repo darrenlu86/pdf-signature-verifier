@@ -46,10 +46,13 @@ async function handleMessage(
       )
 
     case 'open-panel-window':
-      return handleOpenPanelWindow(message.result)
+      return handleOpenPanelWindow(message.result as unknown)
 
     case 'open-upload-window':
       return handleOpenUploadWindow()
+
+    case 'open-popup':
+      return handleOpenPopup()
 
     default:
       return { error: `Unknown action: ${message.action}` }
@@ -75,9 +78,12 @@ async function handlePdfUrlVerification(
 }
 
 async function handleOpenPanelWindow(
-  result: unknown
+  result?: unknown
 ): Promise<{ ok: boolean }> {
-  await chrome.storage.local.set({ 'pdf-panel-result': result })
+  // Result may be passed via message (legacy) or pre-stored in chrome.storage.local
+  if (result !== undefined && result !== null) {
+    await chrome.storage.local.set({ 'pdf-panel-result': result })
+  }
   await chrome.windows.create({
     url: chrome.runtime.getURL('/panel.html?source=popup'),
     type: 'popup',
@@ -94,6 +100,21 @@ async function handleOpenUploadWindow(): Promise<{ ok: boolean }> {
     width: 460,
     height: 500,
   })
+  return { ok: true }
+}
+
+async function handleOpenPopup(): Promise<{ ok: boolean }> {
+  try {
+    await chrome.action.openPopup()
+  } catch {
+    // Fallback: open popup as a window if openPopup() is not supported
+    await chrome.windows.create({
+      url: chrome.runtime.getURL('/popup.html?source=tab'),
+      type: 'popup',
+      width: 460,
+      height: 500,
+    })
+  }
   return { ok: true }
 }
 

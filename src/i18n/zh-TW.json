@@ -117,7 +117,9 @@
     "allValid": "全部有效",
     "signatureCount": "{count} 個簽章{status}",
     "pdfDetected": "偵測到 PDF 文件",
-    "dismiss": "關閉"
+    "dismiss": "關閉",
+    "fileReadFailed": "讀取檔案失敗",
+    "noFileSelected": "未選擇檔案"
   },
   "core": {
     "integrity": {

@@ -1,13 +1,38 @@
 import { defineConfig } from 'wxt'
+import type { Plugin } from 'vite'
+
+/**
+ * Strip remote CDN URLs embedded in jsPDF's minified source.
+ * Chrome Web Store rejects MV3 extensions that contain references
+ * to remotely hosted code, even if the URL is never fetched at runtime.
+ */
+function stripRemoteCodeReferences(): Plugin {
+  return {
+    name: 'strip-remote-code-references',
+    enforce: 'pre',
+    transform(code, id) {
+      if (!id.includes('jspdf')) return null
+      const cleaned = code.replace(
+        /https?:\/\/cdnjs\.cloudflare\.com\/ajax\/libs\/pdfobject\/[^"'\s]*/g,
+        ''
+      )
+      if (cleaned !== code) return { code: cleaned, map: null }
+      return null
+    },
+  }
+}
 
 export default defineConfig({
   srcDir: 'src',
   modules: ['@wxt-dev/module-react'],
+  vite: () => ({
+    plugins: [stripRemoteCodeReferences()],
+  }),
   manifest: ({ browser }) => ({
     name: 'PDFtrust - PDF 數位簽章驗證工具',
     description: 'Verify PDF digital signatures — integrity, certificate chain, trust, timestamp, revocation & LTV. Supports global CAs.',
-    version: '1.0.1',
-    permissions: ['activeTab', 'tabs', 'storage', 'downloads'],
+    version: '1.0.3',
+    permissions: ['activeTab', 'storage', 'downloads'],
     host_permissions: ['<all_urls>'],
     icons: {
       16: 'icon-16.png',
@@ -18,7 +43,7 @@ export default defineConfig({
     web_accessible_resources: [
       {
         resources: ['panel.html', 'chunks/*', 'assets/*'],
-        matches: ['http://*/*', 'https://*/*', 'file:///*'],
+        matches: ['http://*/*', 'https://*/*', 'file://*/*'],
       },
     ],
     browser_specific_settings: browser === 'firefox'

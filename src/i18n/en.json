@@ -117,7 +117,9 @@
     "allValid": "All valid",
     "signatureCount": "{count} signature(s) {status}",
     "pdfDetected": "PDF document detected",
-    "dismiss": "Dismiss"
+    "dismiss": "Dismiss",
+    "fileReadFailed": "Failed to read file",
+    "noFileSelected": "No file selected"
   },
   "core": {
     "integrity": {

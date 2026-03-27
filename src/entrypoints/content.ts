@@ -72,14 +72,18 @@ export default defineContentScript({
 let panelContainer: HTMLDivElement | null = null
 let pendingResult: unknown = null
 
-function isEdgeBrowser(): boolean {
-  return /\bEdg\//i.test(navigator.userAgent)
+function isChromeBrowser(): boolean {
+  // Chrome: has "Chrome/" but NOT "Edg/" (Edge) and NOT "brave" in navigator
+  return /\bChrome\//i.test(navigator.userAgent)
+    && !/\bEdg\//i.test(navigator.userAgent)
+    && !('brave' in navigator)
 }
 
-function showPanel(result: unknown) {
-  // Edge blocks extension iframes in content scripts — open popup directly
-  if (isEdgeBrowser()) {
-    openPanelAsPopup(result)
+async function showPanel(result: unknown) {
+  // Only Chrome reliably supports extension iframes in content scripts.
+  // Edge, Brave, and other Chromium forks block them.
+  if (!isChromeBrowser()) {
+    await openPanelAsPopup(result)
     return
   }
 
@@ -157,10 +161,12 @@ function showPanel(result: unknown) {
   document.addEventListener('keydown', handleEscape)
 }
 
-function openPanelAsPopup(result: unknown) {
-  chrome.runtime.sendMessage({
-    action: 'open-panel-window',
-    result,
+async function openPanelAsPopup(result: unknown) {
+  // Store result directly in storage (avoids large data serialization through messaging)
+  await chrome.storage.local.set({ 'pdf-panel-result': result })
+  // Send lightweight message to background to open the panel window
+  chrome.runtime.sendMessage({ action: 'open-panel-window' }, () => {
+    void chrome.runtime.lastError // suppress console warning
   })
 }
 
@@ -235,6 +241,73 @@ function detectEmbeddedPdfs() {
 // ─── Message Helpers ─────────────────────────────────────────────
 
 const VERIFY_TIMEOUT_MS = 30_000
+
+function isRemoteUrl(url: string): boolean {
+  return url.startsWith('http://') || url.startsWith('https://')
+}
+
+/**
+ * Prompt user to pick a PDF file via file input dialog, then read via FileReader.
+ * This is the only reliable way to read local files from a content script —
+ * XHR and fetch() are blocked by same-origin policy on file:// pages.
+ */
+function pickAndReadLocalPdf(): Promise<{ bytes: Uint8Array; fileName: string }> {
+  return new Promise((resolve, reject) => {
+    const input = document.createElement('input')
+    input.type = 'file'
+    input.accept = '.pdf,application/pdf'
+    input.style.display = 'none'
+
+    input.addEventListener('change', () => {
+      const file = input.files?.[0]
+      input.remove()
+      if (!file) {
+        reject(new Error(t('content.noFileSelected')))
+        return
+      }
+      file.arrayBuffer().then((buffer) => {
+        resolve({ bytes: new Uint8Array(buffer), fileName: file.name })
+      }).catch(() => {
+        reject(new Error(t('content.fileReadFailed')))
+      })
+    })
+
+    // User cancelled the dialog
+    input.addEventListener('cancel', () => {
+      input.remove()
+      reject(new Error(t('content.noFileSelected')))
+    })
+
+    document.body.appendChild(input)
+    input.click()
+  })
+}
+
+/**
+ * Verify a PDF: remote URLs go to background service worker,
+ * local files are read via FileReader in content script context.
+ */
+async function verifyPdfFromUrl(
+  url: string,
+  fileName: string
+): Promise<{ result?: unknown; error?: string }> {
+  if (isRemoteUrl(url)) {
+    return sendMessageWithTimeout<{ result?: unknown; error?: string }>({
+      action: 'verify-pdf-url',
+      url,
+      fileName,
+    })
+  }
+  // Local file — must use FileReader (XHR/fetch blocked by same-origin on file://)
+  try {
+    const picked = await pickAndReadLocalPdf()
+    const { verifyPdfSignatures } = await import('@/core/verifier')
+    const result = await verifyPdfSignatures(picked.bytes, picked.fileName)
+    return { result }
+  } catch (error) {
+    return { error: error instanceof Error ? error.message : t('content.unknownError') }
+  }
+}
 
 function sendMessageWithTimeout<T>(
   message: Record<string, unknown>,
@@ -313,18 +386,14 @@ function createVerifyButton(link: HTMLAnchorElement): HTMLButtonElement {
     button.disabled = true
 
     try {
-      const result = await sendMessageWithTimeout<{ result?: unknown; error?: string }>({
-        action: 'verify-pdf-url',
-        url: link.href,
-        fileName: getFileName(link.href),
-      })
+      const result = await verifyPdfFromUrl(link.href, getFileName(link.href))
 
       if (!result || result.error) {
         button.innerHTML = `${svgX()} ${t('content.failed')}`
         button.title = result?.error || t('content.noResponse')
       } else {
         updateButtonWithResult(button, result.result as VerifyResult)
-        showPanel(result.result)
+        try { await showPanel(result.result) } catch { /* panel display is optional */ }
       }
     } catch (error) {
       button.innerHTML = `${svgX()} ${t('content.error')}`
@@ -375,17 +444,13 @@ function createEmbedVerifyButton(embed: HTMLEmbedElement): HTMLButtonElement {
     button.disabled = true
 
     try {
-      const result = await sendMessageWithTimeout<{ result?: unknown; error?: string }>({
-        action: 'verify-pdf-url',
-        url: src,
-        fileName: getFileName(src),
-      })
+      const result = await verifyPdfFromUrl(src, getFileName(src))
 
       if (!result || result.error) {
         button.innerHTML = `${svgX()} ${t('content.failed')}`
       } else {
         updateButtonWithResult(button, result.result as VerifyResult)
-        showPanel(result.result)
+        try { await showPanel(result.result) } catch { /* panel display is optional */ }
       }
     } catch {
       button.innerHTML = `${svgX()} ${t('content.error')}`
@@ -496,26 +561,30 @@ function injectPdfViewerButton() {
   })
 
   button.addEventListener('click', async () => {
+    const pdfUrl = window.location.href
+
+    if (!isRemoteUrl(pdfUrl)) {
+      // Local file — open the extension popup (same as clicking the icon)
+      chrome.runtime.sendMessage({ action: 'open-popup' }, () => {
+        void chrome.runtime.lastError
+      })
+      return
+    }
+
     button.dataset.pdfVerifierState = 'busy'
     button.innerHTML = `${svgLoading()} ${t('content.verifying')}`
     button.disabled = true
 
     try {
-      const pdfUrl = window.location.href
       const fileName = getFileName(pdfUrl)
-
-      const result = await sendMessageWithTimeout<{ result?: unknown; error?: string }>({
-        action: 'verify-pdf-url',
-        url: pdfUrl,
-        fileName,
-      })
+      const result = await verifyPdfFromUrl(pdfUrl, fileName)
 
       if (!result || result.error) {
         button.innerHTML = `${svgX()} ${t('content.failed')}`
         button.title = result?.error || t('content.noResponse')
       } else {
         updateButtonWithResult(button, result.result as VerifyResult)
-        showPanel(result.result)
+        try { await showPanel(result.result) } catch { /* panel display is optional */ }
       }
     } catch (error) {
       button.innerHTML = `${svgX()} ${t('content.error')}`
