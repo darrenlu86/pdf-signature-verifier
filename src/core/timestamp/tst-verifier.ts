@@ -4,6 +4,7 @@ import type { TimestampInfo, CheckResult, ParsedCertificate } from '@/types'
 import { createPassedCheck, createFailedCheck } from '@/types'
 import { parseCertificate } from '../certificate/cert-utils'
 import { t } from '@/i18n'
+import { isTsaTrustAnchor, isTsaTrustStoreEmpty } from '@/trust-store/trust-manager'
 
 const { ContentInfo, SignedData, Certificate } = pkijs
 
@@ -114,22 +115,78 @@ export async function verifyTimestamp(
     // Get TSA info
     const tsaInfo = await getTsaInfoFromSignedData(signedData)
 
-    // Verify TSA signature using multiple methods
-    const signatureValid = await verifyTsaSignature(signedData, tsaInfo.certificate)
-    const info = toTimestampInfo(tstInfo, tsaInfo.name, signatureValid)
-
-    if (!signatureValid) {
-      // Imprint matches but TSA signature couldn't be verified.
-      // This can happen due to Web Crypto limitations (unsupported algorithms,
-      // PKI.js engine issues in Service Workers, etc.)
-      // Since the imprint matches, we still trust the timestamp.
+    // Verify TSA signature — audit P0-3: failure must mean invalid, no fallback.
+    const sigResult = await verifyTsaSignature(signedData, tsaInfo.certificate)
+    if (!sigResult.valid) {
+      const info = toTimestampInfo(tstInfo, tsaInfo.name, false)
       return {
-        valid: true,
-        info: { ...info, isValid: true },
-        check: createPassedCheck(
-          t('core.timestampVerifier.verifiedWithDigest'),
-          t('core.timestampVerifier.timeWithDigest', { time: info.time.toISOString() }),
-          { key: 'core.timestampVerifier.verifiedWithDigest', detailsKey: 'core.timestampVerifier.timeWithDigest', detailsParams: { time: info.time.toISOString() } }
+        valid: false,
+        info,
+        check: createFailedCheck(
+          t('core.timestampVerifier.tsaSignatureInvalid'),
+          sigResult.reason || t('core.timestampVerifier.tsaSignatureInvalidDetails'),
+          {
+            key: 'core.timestampVerifier.tsaSignatureInvalid',
+            detailsKey: sigResult.reasonKey || 'core.timestampVerifier.tsaSignatureInvalidDetails',
+            detailsParams: sigResult.reasonParams,
+          }
+        ),
+      }
+    }
+
+    // Audit P2-6: TSA trust anchor — even if the TSA signature cryptographically
+    // checks out, the TSA's own certificate chain must terminate at a TRUSTED TSA
+    // anchor (not a signing-CA anchor). When the TSA trust store is empty we
+    // still return the time but flag isValid:false so the verifier downgrades.
+    let tsaTrusted = false
+    let tsaTrustReason = ''
+    if (tsaInfo.certificate) {
+      // Direct anchor match (self-signed root in store) — most common for TSAs
+      // distributed as a single self-signed root.
+      if (isTsaTrustAnchor(tsaInfo.certificate)) {
+        tsaTrusted = true
+      } else {
+        // Walk up the certificates bundled in the TST until we find one in the
+        // TSA trust store. We don't fetch issuers over the network here —
+        // the TST is expected to embed its own chain.
+        for (const cert of signedData.certificates || []) {
+          if (cert instanceof Certificate) {
+            const parsed = await parseCertificate(cert)
+            if (isTsaTrustAnchor(parsed)) {
+              tsaTrusted = true
+              break
+            }
+          }
+        }
+      }
+      if (!tsaTrusted) {
+        tsaTrustReason = isTsaTrustStoreEmpty()
+          ? t('core.timestampVerifier.tsaTrustStoreEmpty')
+          : t('core.timestampVerifier.tsaUntrusted', { tsa: tsaInfo.name })
+      }
+    } else {
+      tsaTrustReason = t('core.timestampVerifier.tsaCertMissing')
+    }
+
+    const info = toTimestampInfo(tstInfo, tsaInfo.name, tsaTrusted)
+
+    if (!tsaTrusted) {
+      // Time is mathematically attested but the TSA anchor isn't in our store.
+      // Return valid:false so the verifier doesn't accept this for LTV trust.
+      return {
+        valid: false,
+        info,
+        check: createFailedCheck(
+          t('core.timestampVerifier.tsaUntrusted', { tsa: tsaInfo.name }),
+          tsaTrustReason,
+          {
+            key: 'core.timestampVerifier.tsaUntrusted',
+            params: { tsa: tsaInfo.name },
+            detailsKey: isTsaTrustStoreEmpty()
+              ? 'core.timestampVerifier.tsaTrustStoreEmpty'
+              : 'core.timestampVerifier.tsaUntrustedDetails',
+            detailsParams: isTsaTrustStoreEmpty() ? undefined : { tsa: tsaInfo.name },
+          }
         ),
       }
     }
@@ -157,61 +214,112 @@ export async function verifyTimestamp(
 }
 
 /**
- * Verify TSA signature using multiple strategies:
- * 1. PKI.js signedData.verify()
- * 2. Direct Web Crypto verify using TSA certificate
+ * Verify TSA signature using two strategies in sequence. Returns a structured
+ * result so callers can distinguish "cryptographically invalid" from
+ * "unsupported algorithm" — audit P0-3 requires unsupported-algorithm to be
+ * reported as a specific error, not silently downgraded to "trusted".
  */
+interface TsaSigResult {
+  valid: boolean
+  /** Pre-rendered detail string for log/UI. */
+  reason?: string
+  /** i18n key for the failure reason, when applicable. */
+  reasonKey?: string
+  reasonParams?: Record<string, string | number>
+}
+
 async function verifyTsaSignature(
   signedData: pkijs.SignedData,
   tsaCert: ParsedCertificate | null
-): Promise<boolean> {
+): Promise<TsaSigResult> {
+  let pkijsError: string | null = null
+
   // Strategy 1: PKI.js built-in verify
   try {
     const result = await signedData.verify({
       signer: 0,
       checkChain: false,
     })
-    if (result) return true
-  } catch {
-    // PKI.js failed, try manual verification
+    if (result) return { valid: true }
+  } catch (err) {
+    pkijsError = err instanceof Error ? err.message : String(err)
   }
 
   // Strategy 2: Direct Web Crypto verify
   if (tsaCert?.publicKey) {
-    try {
-      const signerInfo = signedData.signerInfos[0]
-      if (!signerInfo) return false
-
-      // Get the signed attributes DER encoding
-      const signedAttrs = signerInfo.signedAttrs
-      if (signedAttrs) {
-        // DER encode the signed attributes with SET tag (0x31) for verification
-        const signedAttrsEncoded = signedAttrs.toSchema().toBER(false)
-        const signedAttrsBytes = new Uint8Array(signedAttrsEncoded)
-        // Change CONTEXT [0] tag to SET tag for verification
-        signedAttrsBytes[0] = 0x31
-
-        const signatureValue = signerInfo.signature.valueBlock.valueHexView
-        const algOid = signerInfo.signatureAlgorithm.algorithmId
-        const digestAlgOid = signerInfo.digestAlgorithm.algorithmId
-
-        const verifyAlg = getWebCryptoAlgorithm(algOid, digestAlgOid)
-        if (verifyAlg) {
-          const valid = await crypto.subtle.verify(
-            verifyAlg,
-            tsaCert.publicKey,
-            signatureValue,
-            signedAttrsBytes
-          )
-          if (valid) return true
-        }
+    const signerInfo = signedData.signerInfos[0]
+    if (!signerInfo) {
+      return {
+        valid: false,
+        reason: t('core.timestampVerifier.tsaNoSignerInfo'),
+        reasonKey: 'core.timestampVerifier.tsaNoSignerInfo',
       }
-    } catch {
-      // Web Crypto also failed
+    }
+    const signedAttrs = signerInfo.signedAttrs
+    if (!signedAttrs) {
+      return {
+        valid: false,
+        reason: t('core.timestampVerifier.tsaNoSignedAttrs'),
+        reasonKey: 'core.timestampVerifier.tsaNoSignedAttrs',
+      }
+    }
+
+    const signedAttrsEncoded = signedAttrs.toSchema().toBER(false)
+    const signedAttrsBytes = new Uint8Array(signedAttrsEncoded)
+    signedAttrsBytes[0] = 0x31 // CONTEXT [0] -> SET
+
+    const signatureValue = signerInfo.signature.valueBlock.valueHexView
+    const algOid = signerInfo.signatureAlgorithm.algorithmId
+    const digestAlgOid = signerInfo.digestAlgorithm.algorithmId
+
+    const verifyAlg = getWebCryptoAlgorithm(algOid, digestAlgOid)
+    if (!verifyAlg) {
+      return {
+        valid: false,
+        reason: t('core.timestampVerifier.tsaAlgorithmUnsupported', {
+          alg: algOid,
+          digest: digestAlgOid,
+        }),
+        reasonKey: 'core.timestampVerifier.tsaAlgorithmUnsupported',
+        reasonParams: { alg: algOid, digest: digestAlgOid },
+      }
+    }
+
+    try {
+      const valid = await crypto.subtle.verify(
+        verifyAlg,
+        tsaCert.publicKey,
+        signatureValue,
+        signedAttrsBytes
+      )
+      if (valid) return { valid: true }
+      return {
+        valid: false,
+        reason: t('core.timestampVerifier.tsaSignatureMismatch'),
+        reasonKey: 'core.timestampVerifier.tsaSignatureMismatch',
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      return {
+        valid: false,
+        reason: t('core.timestampVerifier.tsaCryptoError', { error: msg }),
+        reasonKey: 'core.timestampVerifier.tsaCryptoError',
+        reasonParams: { error: msg },
+      }
     }
   }
 
-  return false
+  // No TSA cert and PKI.js failed
+  return {
+    valid: false,
+    reason: pkijsError
+      ? t('core.timestampVerifier.tsaPkijsError', { error: pkijsError })
+      : t('core.timestampVerifier.tsaCertMissing'),
+    reasonKey: pkijsError
+      ? 'core.timestampVerifier.tsaPkijsError'
+      : 'core.timestampVerifier.tsaCertMissing',
+    reasonParams: pkijsError ? { error: pkijsError } : undefined,
+  }
 }
 
 /**
@@ -373,16 +481,91 @@ function verifyMessageImprint(
   return result === 0
 }
 
+/**
+ * Find the certificate that actually signed the SignedData.
+ * Earlier code grabbed certificates[0] which is typically the ROOT CA (the
+ * top of the bundled chain). The right cert is the one identified by the
+ * SignerInfo's `sid` field — either by IssuerAndSerialNumber or by
+ * SubjectKeyIdentifier. Using the wrong public key makes every signature
+ * fail verification, which is exactly what was happening for real TWCA
+ * TSP timestamps.
+ */
+function findSignerCertificate(signedData: pkijs.SignedData): pkijs.Certificate | null {
+  const certs = (signedData.certificates || []).filter(
+    (c): c is pkijs.Certificate => c instanceof Certificate
+  )
+  if (certs.length === 0) return null
+
+  const signerInfo = signedData.signerInfos[0]
+  if (!signerInfo) return certs[0]
+  const sid = signerInfo.sid
+
+  // Case 1: sid is IssuerAndSerialNumber — match issuer DN + serial.
+  if (sid instanceof pkijs.IssuerAndSerialNumber) {
+    const wantedSerial = new Uint8Array(sid.serialNumber.valueBlock.valueHexView)
+    const wantedIssuerHex = Array.from(
+      new Uint8Array(sid.issuer.toSchema().toBER(false))
+    ).join(',')
+    for (const cert of certs) {
+      const certSerial = new Uint8Array(cert.serialNumber.valueBlock.valueHexView)
+      if (
+        certSerial.length === wantedSerial.length &&
+        certSerial.every((b, i) => b === wantedSerial[i])
+      ) {
+        const certIssuerHex = Array.from(
+          new Uint8Array(cert.issuer.toSchema().toBER(false))
+        ).join(',')
+        if (certIssuerHex === wantedIssuerHex) {
+          return cert
+        }
+      }
+    }
+  }
+
+  // Case 2: sid is SubjectKeyIdentifier — match SKI extension on each cert.
+  // pkijs exposes sid as an OctetString in this case.
+  if (sid && 'valueBlock' in sid && sid.idBlock && (sid.idBlock as { tagNumber?: number }).tagNumber === 0) {
+    const wantedSki = new Uint8Array((sid as unknown as { valueBlock: { valueHexView: ArrayBuffer } }).valueBlock.valueHexView)
+    for (const cert of certs) {
+      const skiExt = cert.extensions?.find((e) => e.extnID === '2.5.29.14')
+      if (!skiExt) continue
+      // SKI extension value is OctetString wrapping another OctetString
+      try {
+        const inner = (skiExt.parsedValue as unknown as { valueBlock?: { valueHexView?: ArrayBuffer } })
+          ?.valueBlock?.valueHexView
+        if (!inner) continue
+        const skiBytes = new Uint8Array(inner)
+        if (
+          skiBytes.length === wantedSki.length &&
+          skiBytes.every((b, i) => b === wantedSki[i])
+        ) {
+          return cert
+        }
+      } catch {
+        continue
+      }
+    }
+  }
+
+  // Last-resort fallback: pick the first non-CA certificate (TSA leaves
+  // typically have basicConstraints CA=false). If none match, return the
+  // first cert and let the signature verification fail with a clear error.
+  for (const cert of certs) {
+    const bc = cert.extensions?.find((e) => e.extnID === '2.5.29.19')
+    if (bc) {
+      const parsed = bc.parsedValue as unknown as { cA?: boolean }
+      if (parsed && parsed.cA === false) return cert
+    }
+  }
+  return certs[0]
+}
+
 async function getTsaInfoFromSignedData(
   signedData: pkijs.SignedData
 ): Promise<{ name: string; certificate: ParsedCertificate | null }> {
   try {
-    if (!signedData.certificates || signedData.certificates.length === 0) {
-      return { name: t('core.timestampVerifier.unknownTsa'), certificate: null }
-    }
-
-    const tsaCert = signedData.certificates[0]
-    if (!(tsaCert instanceof Certificate)) {
+    const tsaCert = findSignerCertificate(signedData)
+    if (!tsaCert) {
       return { name: t('core.timestampVerifier.unknownTsa'), certificate: null }
     }
 

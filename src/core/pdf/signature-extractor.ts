@@ -67,6 +67,9 @@ function extractSignatureAtPosition(
   const isDocTimeStamp = /\/SubFilter\s*\/ETSI\.RFC3161/.test(dictText)
     || /\/Type\s*\/DocTimeStamp/.test(dictText)
 
+  // Audit P2-7: parse DocMDP / FieldMDP from /Reference array
+  const { docMdp, fieldMdp } = extractMdpInfo(dictText)
+
   return {
     name,
     byteRange,
@@ -76,7 +79,67 @@ function extractSignatureAtPosition(
     reason,
     location,
     contactInfo,
+    docMdp,
+    fieldMdp,
   }
+}
+
+/**
+ * Audit P2-7: extract DocMDP and FieldMDP transform-method info from the
+ * signature's /Reference array. A signature is a certification signature
+ * when it contains a /Reference entry with /TransformMethod /DocMDP.
+ *
+ * Structure (PDF 1.7, ISO 32000-1 §12.8.2.2):
+ *   /Reference [ << /TransformMethod /DocMDP
+ *                   /TransformParams << /Type /TransformParams
+ *                                       /P 1
+ *                                       /V /1.2
+ *                                       /DigestMethod /SHA1 >> >> ]
+ *
+ * /P values: 1 = No changes; 2 = form fill-in/signatures; 3 = above + annotations.
+ */
+function extractMdpInfo(dictText: string): {
+  docMdp?: PdfSignatureField['docMdp']
+  fieldMdp?: PdfSignatureField['fieldMdp']
+} {
+  const result: ReturnType<typeof extractMdpInfo> = {}
+
+  const docMdpMatch = dictText.match(
+    /\/TransformMethod\s*\/DocMDP[\s\S]*?\/TransformParams\s*<<([\s\S]*?)>>/
+  )
+  if (docMdpMatch) {
+    const params = docMdpMatch[1]
+    const pMatch = params.match(/\/P\s+(\d)/)
+    const digestMatch = params.match(/\/DigestMethod\s*\/(\w+)/)
+    const rawLevel = pMatch ? parseInt(pMatch[1], 10) : 2
+    const level: 1 | 2 | 3 = rawLevel === 1 ? 1 : rawLevel === 3 ? 3 : 2
+    result.docMdp = {
+      permissionLevel: level,
+      digestMethod: digestMatch ? digestMatch[1] : undefined,
+    }
+  }
+
+  const fieldMdpMatch = dictText.match(
+    /\/TransformMethod\s*\/FieldMDP[\s\S]*?\/TransformParams\s*<<([\s\S]*?)>>/
+  )
+  if (fieldMdpMatch) {
+    const params = fieldMdpMatch[1]
+    const actionMatch = params.match(/\/Action\s*\/(\w+)/)
+    const fieldsMatch = params.match(/\/Fields\s*\[([^\]]*)\]/)
+    const action = (actionMatch ? actionMatch[1] : 'All') as 'All' | 'Include' | 'Exclude'
+    const fields: string[] = []
+    if (fieldsMatch) {
+      const fieldsContent = fieldsMatch[1]
+      const fieldPattern = /\(([^)]+)\)/g
+      let fm: RegExpExecArray | null
+      while ((fm = fieldPattern.exec(fieldsContent)) !== null) {
+        fields.push(fm[1])
+      }
+    }
+    result.fieldMdp = { action, fields }
+  }
+
+  return result
 }
 
 function findDictStart(text: string, position: number): number {

@@ -134,7 +134,10 @@
       "integrityVerifiedDigestOnly": "文件完整性已驗證（僅摘要）",
       "signatureVerified": "簽章已驗證",
       "integrityVerifiedCadesHashMismatch": "文件完整性已驗證（CAdES 憑證雜湊不符）",
-      "cadesHashDetails": "預期：{expected}，實際：{actual}"
+      "cadesHashDetails": "預期：{expected}，實際：{actual}",
+      "signedWithSubsequentChanges": "簽章完整，但文件在簽署後仍有變更（多重簽章或附加內容）",
+      "docMdpViolation": "違反 DocMDP 限制",
+      "docMdpP1Violation": "此認證簽章設定為「不可修改」（P=1），但偵測到後續變更"
     },
     "chain": {
       "signerCertNotFound": "找不到簽署者憑證",
@@ -150,7 +153,10 @@
     "trust": {
       "chainComplete": "憑證鏈完整",
       "chainIncomplete": "憑證鏈不完整",
-      "cannotBuildChain": "無法建立完整憑證鏈"
+      "cannotBuildChain": "無法建立完整憑證鏈",
+      "rootUntrusted": "根憑證不在信任清單中",
+      "rootNotInStore": "根 CA「{name}」未列入信任清單",
+      "storeEmpty": "信任清單為空 — 尚未載入任何 root CA，所有簽章預設視為不可信"
     },
     "timestamp": {
       "verified": "時戳已驗證",
@@ -262,7 +268,19 @@
       "verifiedTime": "時間：{time}",
       "verificationError": "時戳驗證錯誤",
       "unknownTsa": "未知 TSA",
-      "unknownIssuer": "未知 TSA"
+      "unknownIssuer": "未知 TSA",
+      "tsaSignatureInvalid": "TSA 簽章驗證失敗",
+      "tsaSignatureInvalidDetails": "TSA 對時戳記號的密碼學簽章無效",
+      "tsaSignatureMismatch": "TSA 簽章與時戳內容不符",
+      "tsaAlgorithmUnsupported": "TSA 簽章演算法不支援（{alg} + {digest}）",
+      "tsaCryptoError": "TSA 簽章驗證錯誤：{error}",
+      "tsaPkijsError": "PKI.js 驗證失敗：{error}",
+      "tsaNoSignerInfo": "時戳中無 SignerInfo",
+      "tsaNoSignedAttrs": "時戳中無 signed attributes",
+      "tsaCertMissing": "時戳中無 TSA 憑證",
+      "tsaUntrusted": "TSA「{tsa}」不在信任清單中",
+      "tsaUntrustedDetails": "TSA「{tsa}」的憑證未列入 TSA 信任清單",
+      "tsaTrustStoreEmpty": "TSA 信任清單為空 — 尚未載入任何 TSA root，無法判定時戳是否可信"
     },
     "misc": {
       "pdfDownloadFailed": "PDF 下載失敗: {status}",

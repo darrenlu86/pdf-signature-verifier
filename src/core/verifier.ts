@@ -26,6 +26,9 @@ import { checkCrlStatus } from './revocation/crl-client'
 import { checkEmbeddedRevocationStatus } from './revocation/embedded-reader'
 import { verifyTimestamp, getEffectiveSigningTime } from './timestamp/tst-verifier'
 import { checkLtvCompleteness, canTrustExpiredWithLtv } from './ltv/ltv-checker'
+import { isTrustAnchor, initializeTrustStore, isTrustStoreEmpty } from '@/trust-store/trust-manager'
+import { checkForPostSignModification } from './pdf/byte-range'
+import { ensurePkijsEngine } from './crypto/pkijs-engine'
 
 export interface VerificationOptions {
   checkOnlineRevocation?: boolean
@@ -41,6 +44,10 @@ export async function verifyPdfSignatures(
   fileName: string,
   options: VerificationOptions = {}
 ): Promise<VerificationResult> {
+  // Wire PKI.js to Web Crypto (idempotent) and load trust store.
+  ensurePkijsEngine()
+  await initializeTrustStore()
+
   // Parse PDF
   const pdf = await parsePdf(pdfData)
 
@@ -72,7 +79,8 @@ export async function verifyPdfSignatures(
       sigField,
       i,
       options,
-      pdf.dssRevocationInfo
+      pdf.dssRevocationInfo,
+      pdf.signatureFields
     )
     signatures.push(result)
   }
@@ -105,12 +113,34 @@ export async function verifyPdfSignatures(
 /**
  * Verify a single signature
  */
+/**
+ * Decide whether unsigned trailing bytes for THIS signature are explained
+ * by a later signature's incremental update (legitimate multi-sig case) or
+ * indicate a signature wrapping attack.
+ */
+function hasLaterSignatureCovering(
+  thisSig: PdfSignatureField,
+  allFields: PdfSignatureField[],
+  tailEnd: number
+): boolean {
+  const thisEnd = thisSig.byteRange.start2 + thisSig.byteRange.length2
+  for (const other of allFields) {
+    if (other === thisSig) continue
+    const otherEnd = other.byteRange.start2 + other.byteRange.length2
+    if (otherEnd >= tailEnd && other.byteRange.start1 <= thisEnd) {
+      return true
+    }
+  }
+  return false
+}
+
 async function verifySingleSignature(
   pdfData: Uint8Array,
   sigField: PdfSignatureField,
   index: number,
   options: VerificationOptions,
-  dssRevocationInfo: EmbeddedRevocationInfo | null = null
+  dssRevocationInfo: EmbeddedRevocationInfo | null = null,
+  allSignatureFields: PdfSignatureField[] = []
 ): Promise<SignatureResult> {
   const checks: SignatureResult['checks'] = {
     integrity: createFailedCheck(t('core.integrity.notVerified'), undefined, { key: 'core.integrity.notVerified' }),
@@ -126,9 +156,15 @@ async function verifySingleSignature(
   let signedAt: Date | null = null
   const certificateChain: CertificateInfo[] = []
   let timestampInfo: TimestampInfo | undefined
+  // Audit P1-4: tracks "signed with subsequent changes" — the signature itself
+  // is intact, but content was appended afterwards (legitimately if a later
+  // signature covers it, suspiciously otherwise).
+  let signedWithSubsequentChanges = false
 
   try {
-    // 1. Validate ByteRange
+    // 1. Validate ByteRange — structural checks fail-closed (gap content
+    // invalid, ranges overlap, exceed file size). The unsigned-tail signal
+    // is handled separately below per audit P1-4.
     const byteRangeValidation = validateByteRange(pdfData, sigField.byteRange)
     if (!byteRangeValidation.isValid) {
       checks.integrity = createFailedCheck(
@@ -137,6 +173,21 @@ async function verifySingleSignature(
         { key: 'core.integrity.byteRangeFailed' }
       )
       return createSignatureResult(index, signerName, signedAt, 'failed', checks, certificateChain)
+    }
+
+    // Audit P1-4: handle "tail not covered by this signature".
+    // - 0 trailing or whitespace-only → fine
+    // - Trailing bytes that a later signature covers → multi-sig, demote to "signed with subsequent changes"
+    // - Trailing bytes WITHOUT a later signature → legitimate post-sign incremental update; demote
+    // - Combined with a DocMDP P=1 certification signature → fail (handled later in status logic)
+    if (!byteRangeValidation.trailingIsWhitespaceOnly && byteRangeValidation.trailingUnsignedBytes > 0) {
+      signedWithSubsequentChanges = true
+    }
+    // checkForPostSignModification is a redundant secondary check; we keep
+    // calling it so its result is available for diagnostics / later policy.
+    const postSign = checkForPostSignModification(pdfData, sigField.byteRange)
+    if (postSign.modified) {
+      signedWithSubsequentChanges = true
     }
 
     // 2. Parse PKCS#7
@@ -290,10 +341,11 @@ async function verifySingleSignature(
       })
     }
 
-    // Validate certificate chain cryptographic signatures
+    // Validate certificate chain cryptographic signatures.
+    // requireTrustAnchor MUST be true — see audit P0-2.
     const chainValidation = await validateCertificateChain(chain, {
       validationTime: new Date(),
-      requireTrustAnchor: false,
+      requireTrustAnchor: true,
     })
 
     if (chain.isComplete && chainValidation.checks.signaturesValid.passed) {
@@ -332,8 +384,32 @@ async function verifySingleSignature(
       )
     }
 
-    // 5. Check trust root (chain-based: complete chain to self-signed root = trusted)
-    if (chain.isComplete && chain.root) {
+    // 5. Check trust root — must match the curated trust store (audit P0-2).
+    // "Chain complete" alone is meaningless: anyone can self-sign a root CA.
+    if (!chain.isComplete || !chain.root) {
+      checks.trustRoot = createFailedCheck(
+        t('core.trust.chainIncomplete'),
+        t('core.trust.cannotBuildChain'),
+        {
+          key: 'core.trust.chainIncomplete',
+          detailsKey: 'core.trust.cannotBuildChain',
+        }
+      )
+    } else if (!chain.isTrusted || !isTrustAnchor(chain.root)) {
+      const rootName = getCommonName(chain.root)
+      const storeWarning = isTrustStoreEmpty()
+        ? t('core.trust.storeEmpty')
+        : t('core.trust.rootNotInStore', { name: rootName })
+      checks.trustRoot = createFailedCheck(
+        t('core.trust.rootUntrusted'),
+        storeWarning,
+        {
+          key: 'core.trust.rootUntrusted',
+          detailsKey: isTrustStoreEmpty() ? 'core.trust.storeEmpty' : 'core.trust.rootNotInStore',
+          detailsParams: isTrustStoreEmpty() ? undefined : { name: rootName },
+        }
+      )
+    } else {
       const rootName = getCommonName(chain.root)
       checks.trustRoot = createPassedCheck(
         t('core.trust.chainComplete'),
@@ -342,15 +418,6 @@ async function verifySingleSignature(
           key: 'core.trust.chainComplete',
           detailsKey: 'core.chain.rootCa',
           detailsParams: { name: rootName },
-        }
-      )
-    } else {
-      checks.trustRoot = createFailedCheck(
-        t('core.trust.chainIncomplete'),
-        t('core.trust.cannotBuildChain'),
-        {
-          key: 'core.trust.chainIncomplete',
-          detailsKey: 'core.trust.cannotBuildChain',
         }
       )
     }
@@ -510,36 +577,75 @@ async function verifySingleSignature(
       )
     }
 
-    // 9. LTV check (use merged revocation info including DSS)
+    // 9. LTV check (audit P1-5 + P2-8).
+    // Audit P1-5: do NOT override an incomplete LTV result. hasLtvInfo and
+    // ltvComplete are different states and must be reported as such — UI can
+    // surface "partial LTV (online check passed but no embedded data)" by
+    // combining checks.ltv with checks.revocation.
+    // Audit P2-8: detect DocTimeStamp fields that come after this signature
+    // and feed them as archive timestamps for B-LTA classification.
+    const archiveSignatures = allSignatureFields.filter(
+      (f) => f.isDocTimeStamp && f.byteRange.start2 + f.byteRange.length2 > sigField.byteRange.start2 + sigField.byteRange.length2
+    )
     const ltvResult = checkLtvCompleteness(
       chain.certificates,
       mergedRevocationInfo,
-      timestampInfo || null
-    )
-    // If LTV data is incomplete but revocation was verified and timestamp exists,
-    // consider it sufficient — the signature can still be validated long-term
-    // when online revocation checks are available
-    if (!ltvResult.check.passed && checks.revocation.passed && timestampInfo) {
-      checks.ltv = {
-        passed: true,
-        message: t('core.ltv.hasLtvInfo'),
-        details: t('core.ltv.withTimestampAndRevocation'),
-        i18nKey: 'core.ltv.hasLtvInfo',
-        detailsI18nKey: 'core.ltv.withTimestampAndRevocation',
+      timestampInfo || null,
+      {
+        archiveTimestampCount: archiveSignatures.length,
+        // Without per-archive LTV state available here, assume true if DSS
+        // contains revocation data covering each archive TSA. Recursive
+        // archive-TST LTV validation is a TODO for a deeper pass.
+        archiveTimestampsHaveLtv: archiveSignatures.map(() =>
+          (mergedRevocationInfo?.ocspResponses.length || 0) > 0 ||
+          (mergedRevocationInfo?.crls.length || 0) > 0
+        ),
       }
-    } else {
-      checks.ltv = ltvResult.check
-    }
+    )
+    checks.ltv = ltvResult.check
+    const ltvLevel = ltvResult.level
 
     // Determine signature status
     const integrityFailed = !checks.integrity.passed
     const isRevoked = checks.revocation && !checks.revocation.passed && checks.revocation.message.includes('revoked')
 
-    const status = integrityFailed || isRevoked
+    let status: SignatureResult['status'] = integrityFailed || isRevoked
       ? 'failed'
       : !checks.certificateChain.passed || !checks.trustRoot.passed || !checks.validity.passed
       ? 'unknown'
       : 'trusted'
+
+    // Audit P1-4 / P2-7: handle unsigned tail bytes after the signed range.
+    //
+    //   - DocMDP P=1 (no changes permitted) + any post-sign change → failed
+    //   - LTV-enriched signature (PAdES B-LT/B-LTA): the post-sign tail is
+    //     legitimately the DSS (Document Security Store) that ships
+    //     revocation data for long-term validation. Don't downgrade — this
+    //     is exactly how the spec wants those signatures to grow.
+    //   - Plain post-sign update on a non-LTV signature: downgrade to
+    //     unknown with "signed with subsequent changes" — could be a later
+    //     signature (multi-sig) or attacker-controlled append.
+    const isLtvSignature = ltvLevel === 'B-LT' || ltvLevel === 'B-LTA'
+    if (signedWithSubsequentChanges) {
+      if (sigField.docMdp && sigField.docMdp.permissionLevel === 1) {
+        status = 'failed'
+        checks.integrity = createFailedCheck(
+          t('core.integrity.docMdpViolation'),
+          t('core.integrity.docMdpP1Violation'),
+          {
+            key: 'core.integrity.docMdpViolation',
+            detailsKey: 'core.integrity.docMdpP1Violation',
+          }
+        )
+      } else if (!isLtvSignature && status === 'trusted') {
+        status = 'unknown'
+        checks.integrity = {
+          ...checks.integrity,
+          details: t('core.integrity.signedWithSubsequentChanges'),
+          detailsI18nKey: 'core.integrity.signedWithSubsequentChanges',
+        }
+      }
+    }
 
     return createSignatureResult(
       index,
@@ -549,7 +655,15 @@ async function verifySingleSignature(
       checks,
       certificateChain,
       timestampInfo,
-      sigField.reason
+      sigField.reason,
+      {
+        type: sigField.docMdp ? 'certification' : 'approval',
+        docMdp: sigField.docMdp,
+        ltvLevel,
+        subsequentChanges: signedWithSubsequentChanges
+          ? [{ signatureIndex: -1, byteOffset: sigField.byteRange.start2 + sigField.byteRange.length2, permittedByDocMdp: null }]
+          : undefined,
+      }
     )
   } catch (error) {
     checks.integrity = createFailedCheck(
@@ -729,7 +843,8 @@ function createSignatureResult(
   checks: SignatureResult['checks'],
   certificateChain: CertificateInfo[],
   timestampInfo?: TimestampInfo,
-  reason?: string
+  reason?: string,
+  extras?: Partial<Pick<SignatureResult, 'type' | 'docMdp' | 'ltvLevel' | 'subsequentChanges'>>
 ): SignatureResult {
   return {
     index,
@@ -740,5 +855,6 @@ function createSignatureResult(
     checks,
     certificateChain,
     timestampInfo,
+    ...extras,
   }
 }

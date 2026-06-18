@@ -1,11 +1,17 @@
 import type { ParsedCertificate, CertificateChain } from '@/types'
 import { parseCertificateFromBytes } from './cert-utils'
+import { isChainTrusted, findTrustAnchor } from '@/trust-store/trust-manager'
 
 /**
  * Build a certificate chain from a set of certificates.
- * Uses only embedded PKCS#7 certificates — no external trust store.
- * isComplete = reached a self-signed root.
- * isTrusted  = isComplete (mathematical chain integrity).
+ * Uses embedded PKCS#7 certificates plus the configured trust store.
+ *
+ * isComplete = chain terminates at a self-signed cert (structural completeness).
+ * isTrusted  = the chain's root is present in the trust store.
+ *
+ * NOTE: isComplete alone is NEVER enough to call a chain trusted —
+ * any attacker can self-sign a CA and append it. The trust check must
+ * cross-reference the curated trust anchor list (taiwan-roots.ts).
  */
 export async function buildCertificateChain(
   endEntityCert: ParsedCertificate,
@@ -68,16 +74,42 @@ export async function buildCertificateChain(
     }
   }
 
-  // Find root certificate
-  const root = chain.length > 0 && chain[chain.length - 1].isSelfSigned
+  // Find structural root: the topmost cert if it is self-signed.
+  let root = chain.length > 0 && chain[chain.length - 1].isSelfSigned
     ? chain[chain.length - 1]
     : null
+
+  // Trust check: ANY cert in the chain matching the trust store is enough.
+  // Two cases:
+  //  - Self-signed root cert is in the trust store (typical CA scenario).
+  //  - An intermediate is itself in the trust store (cross-signed scenario).
+  //    In that case the "root" for trust purposes is the anchor, and the
+  //    chain is considered "complete enough" — we have a verified path to
+  //    a trusted point.
+  let isTrusted = false
+  if (chain.length > 0) {
+    isTrusted = isChainTrusted(chain)
+    if (isTrusted) {
+      // Find which cert in the chain matches the trust store and treat
+      // that as the effective root.
+      for (const cert of chain) {
+        const anchor = findTrustAnchor(cert)
+        if (anchor) {
+          root = anchor
+          // A path to a trust anchor counts as a complete chain even if
+          // the anchor is an intermediate.
+          isComplete = true
+          break
+        }
+      }
+    }
+  }
 
   return {
     certificates: chain,
     root,
     isComplete,
-    isTrusted: isComplete,
+    isTrusted,
   }
 }
 

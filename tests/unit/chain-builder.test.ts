@@ -15,6 +15,16 @@ vi.mock('@/core/certificate/cert-utils', async (importOriginal) => {
   }
 })
 
+// Mock the trust manager so tests can opt cert fingerprints into the trust
+// store without loading real PEMs. Default: trust store empty.
+const trustedFingerprints = new Set<string>()
+vi.mock('@/trust-store/trust-manager', () => ({
+  isChainTrusted: (chain: ParsedCertificate[]) =>
+    chain.some((c) => trustedFingerprints.has(c.fingerprint)),
+  findTrustAnchor: (cert: ParsedCertificate) =>
+    trustedFingerprints.has(cert.fingerprint) ? cert : null,
+}))
+
 function createEmptyKeyUsage(): KeyUsageFlags {
   return {
     digitalSignature: false,
@@ -53,7 +63,10 @@ function createMockCert(overrides: Partial<ParsedCertificate>): ParsedCertificat
 
 describe('chain-builder', () => {
   describe('buildCertificateChain', () => {
-    it('should return a single-cert chain for a self-signed certificate', async () => {
+    it('should return a single-cert chain for a self-signed certificate (untrusted)', async () => {
+      // Audit P0-2: a self-signed root is structurally complete but NOT
+      // automatically trusted — the trust check must consult the trust store.
+      trustedFingerprints.clear()
       const { buildCertificateChain } = await import('@/core/certificate/chain-builder')
 
       const selfSigned = createMockCert({
@@ -67,11 +80,31 @@ describe('chain-builder', () => {
 
       expect(chain.certificates).toHaveLength(1)
       expect(chain.isComplete).toBe(true)
-      expect(chain.isTrusted).toBe(true)
+      expect(chain.isTrusted).toBe(false) // not in trust store
       expect(chain.root).toBe(selfSigned)
     })
 
+    it('marks a self-signed root as trusted when it is in the trust store', async () => {
+      trustedFingerprints.clear()
+      trustedFingerprints.add('root-fp')
+      const { buildCertificateChain } = await import('@/core/certificate/chain-builder')
+
+      const selfSigned = createMockCert({
+        subject: 'CN=Root CA',
+        issuer: 'CN=Root CA',
+        isSelfSigned: true,
+        fingerprint: 'root-fp',
+      })
+
+      const chain = await buildCertificateChain(selfSigned, [])
+
+      expect(chain.isComplete).toBe(true)
+      expect(chain.isTrusted).toBe(true)
+    })
+
     it('should build a chain from end entity through intermediate to root', async () => {
+      trustedFingerprints.clear()
+      trustedFingerprints.add('root-fp') // anchor the root
       const { buildCertificateChain } = await import('@/core/certificate/chain-builder')
 
       const root = createMockCert({

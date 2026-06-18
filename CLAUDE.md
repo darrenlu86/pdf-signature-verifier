@@ -119,3 +119,23 @@ Messages flow: content script -> background (via `chrome.runtime.sendMessage`) -
 - Setup file: `tests/setup.ts`
 - Test pattern: `tests/**/*.{test,spec}.{ts,tsx}`
 - Existing tests cover: byte-range, digest verification, i18n, trust manager, types, sample PDF verification
+
+## Browser Extension Rules
+
+Migrated from `~/.claude/rules/browser-extensions.md` (project-scoped).
+
+### Manifest Format
+- Chrome and Firefox manifests differ — always validate per target browser
+- Chrome MV3 vs Firefox MV2/MV3 differences must be checked
+- Firefox `data_collection_permissions` format: verify against MDN docs
+
+### Icons
+- Chrome/Brave do NOT support SVG icons — use PNG only
+- Provide icons at 16, 32, 48, 128
+
+### Build and Test
+- Always test with a fresh build, not stale output
+- After ANY build change (manifest, webpack, CSS, content scripts), rebuild and reload
+- Never assume changes take effect without a fresh build
+- Load unpacked extension to verify before submission
+- Test in both Chrome and Firefox if targeting both

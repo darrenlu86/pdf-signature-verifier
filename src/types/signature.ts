@@ -12,6 +12,23 @@ export interface PdfSignatureField {
   contactInfo?: string
   signDate?: Date
   m?: Date
+  /**
+   * Audit P2-7: DocMDP info derived from the signature's /Reference
+   * /TransformMethod /DocMDP and the document catalog's /Perms /DocMDP.
+   * Presence => this is a certification signature.
+   */
+  docMdp?: {
+    permissionLevel: 1 | 2 | 3
+    digestMethod?: string
+  }
+  /**
+   * Audit P2-7: FieldMDP info (constrains modifications to specific fields).
+   */
+  fieldMdp?: {
+    /** "All", "Include", "Exclude" */
+    action: 'All' | 'Include' | 'Exclude'
+    fields: string[]
+  }
 }
 
 export interface ByteRange {

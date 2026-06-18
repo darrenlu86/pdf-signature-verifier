@@ -134,7 +134,10 @@
       "integrityVerifiedDigestOnly": "Document integrity verified (digest only)",
       "signatureVerified": "Signature verified",
       "integrityVerifiedCadesHashMismatch": "Document integrity verified (CAdES certificate hash mismatch)",
-      "cadesHashDetails": "Expected: {expected}, Actual: {actual}"
+      "cadesHashDetails": "Expected: {expected}, Actual: {actual}",
+      "signedWithSubsequentChanges": "Signature is intact, but the document was changed afterwards (multi-signature or appended content)",
+      "docMdpViolation": "DocMDP constraint violated",
+      "docMdpP1Violation": "This certification signature requires no further changes (P=1), but subsequent modifications were detected"
     },
     "chain": {
       "signerCertNotFound": "Signer certificate not found",
@@ -150,7 +153,10 @@
     "trust": {
       "chainComplete": "Certificate chain complete",
       "chainIncomplete": "Certificate chain incomplete",
-      "cannotBuildChain": "Cannot build complete certificate chain"
+      "cannotBuildChain": "Cannot build complete certificate chain",
+      "rootUntrusted": "Root certificate not in trust store",
+      "rootNotInStore": "Root CA \"{name}\" is not in the trust list",
+      "storeEmpty": "Trust store is empty — no root CAs loaded; all signatures default to untrusted"
     },
     "timestamp": {
       "verified": "Timestamp verified",
@@ -262,7 +268,19 @@
       "verifiedTime": "Time: {time}",
       "verificationError": "Timestamp verification error",
       "unknownTsa": "Unknown TSA",
-      "unknownIssuer": "Unknown TSA"
+      "unknownIssuer": "Unknown TSA",
+      "tsaSignatureInvalid": "TSA signature verification failed",
+      "tsaSignatureInvalidDetails": "TSA's cryptographic signature over the TST is invalid",
+      "tsaSignatureMismatch": "TSA signature does not match the timestamp content",
+      "tsaAlgorithmUnsupported": "TSA signature algorithm unsupported ({alg} + {digest})",
+      "tsaCryptoError": "TSA signature verification error: {error}",
+      "tsaPkijsError": "PKI.js verification failed: {error}",
+      "tsaNoSignerInfo": "No SignerInfo in timestamp",
+      "tsaNoSignedAttrs": "No signed attributes in timestamp",
+      "tsaCertMissing": "No TSA certificate in timestamp",
+      "tsaUntrusted": "TSA \"{tsa}\" is not in the trust store",
+      "tsaUntrustedDetails": "TSA \"{tsa}\"'s certificate is not in the TSA trust list",
+      "tsaTrustStoreEmpty": "TSA trust store is empty — no TSA roots loaded; cannot determine if the timestamp is trustworthy"
     },
     "misc": {
       "pdfDownloadFailed": "PDF download failed: {status}",

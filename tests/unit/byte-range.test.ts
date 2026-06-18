@@ -129,8 +129,11 @@ describe('checkForPostSignModification', () => {
     expect(result.additionalBytes).toBe(100)
   })
 
-  it('should allow small trailing content', () => {
-    const data = new Uint8Array(1005)
+  it('allows only whitespace-only trailing (≤2 bytes) after audit P1-4', () => {
+    // Audit P1-4: tolerance tightened from 10 bytes to ≤2 bytes of EOL.
+    const data = new Uint8Array(1002)
+    data[1000] = 0x0d // CR
+    data[1001] = 0x0a // LF
 
     const byteRange: ByteRange = {
       start1: 0,
@@ -141,8 +144,30 @@ describe('checkForPostSignModification', () => {
 
     const result = checkForPostSignModification(data, byteRange)
 
-    expect(result.modified).toBe(false) // 5 bytes is within tolerance
+    expect(result.modified).toBe(false)
+    expect(result.additionalBytes).toBe(2)
+    expect(result.tailIsWhitespaceOnly).toBe(true)
+  })
+
+  it('flags non-whitespace trailing as modification (audit P1-4)', () => {
+    // Even a single byte of non-EOL content past the signed range is a
+    // signature wrapping signal — verifier callers decide whether the byte
+    // is permitted by DocMDP or covered by a later signature.
+    const data = new Uint8Array(1005)
+    data[1000] = 0x25 // '%' — non-whitespace
+
+    const byteRange: ByteRange = {
+      start1: 0,
+      length1: 400,
+      start2: 500,
+      length2: 500,
+    }
+
+    const result = checkForPostSignModification(data, byteRange)
+
+    expect(result.modified).toBe(true)
     expect(result.additionalBytes).toBe(5)
+    expect(result.tailIsWhitespaceOnly).toBe(false)
   })
 })
 

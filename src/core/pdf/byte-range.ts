@@ -4,6 +4,13 @@ export interface ByteRangeValidation {
   isValid: boolean
   errors: string[]
   warnings: string[]
+  /**
+   * Audit P1-4: bytes after the signed range. Separated from `errors` so
+   * the verifier can decide policy (multi-sig demote vs wrapping fail).
+   */
+  trailingUnsignedBytes: number
+  /** True if the trailing bytes are only EOL whitespace (allowed). */
+  trailingIsWhitespaceOnly: boolean
 }
 
 /**
@@ -39,10 +46,26 @@ export function validateByteRange(
     errors.push('Second ByteRange exceeds file size')
   }
 
-  // Check that the entire file is covered (with gap for signature)
+  // Audit P1-4: report the unsigned tail but DON'T fail validation here.
+  // The verifier decides whether the tail is benign (post-sign incremental
+  // updates allowed by DocMDP, or covered by a later signature) or malicious
+  // (signature wrapping). Validation only fails for structural errors.
   const coveredEnd = start2 + length2
-  if (coveredEnd !== fileSize) {
-    warnings.push(`ByteRange does not cover entire file: ends at ${coveredEnd}, file size is ${fileSize}`)
+  const trailing = Math.max(0, fileSize - coveredEnd)
+  let trailingIsWhitespaceOnly = false
+  if (trailing > 0) {
+    const tail = data.slice(coveredEnd, fileSize)
+    trailingIsWhitespaceOnly =
+      trailing <= 2 &&
+      Array.from(tail).every((b) => b === 0x0a || b === 0x0d)
+    if (!trailingIsWhitespaceOnly) {
+      warnings.push(
+        `ByteRange ends ${trailing} bytes before file end (covered ${coveredEnd}, size ${fileSize}). ` +
+          `Caller must verify this is a permitted post-sign change or a later-signature update.`
+      )
+    }
+  } else {
+    trailingIsWhitespaceOnly = true
   }
 
   // Verify the gap contains the signature hex string
@@ -58,6 +81,8 @@ export function validateByteRange(
     isValid: errors.length === 0,
     errors,
     warnings,
+    trailingUnsignedBytes: trailing,
+    trailingIsWhitespaceOnly,
   }
 }
 
@@ -98,24 +123,34 @@ export function extractSignedBytes(
 
 /**
  * Check if document has been modified after signing
- * by examining if there's content after the last ByteRange
+ * by examining if there's content after the last ByteRange.
+ *
+ * Returns `modified: true` for ANY non-whitespace byte after the signed range,
+ * tightened from the original 10-byte tolerance (audit P1-4). Trailing
+ * whitespace (≤2 bytes of LF/CR) is permitted to match PDF EOL conventions.
  */
 export function checkForPostSignModification(
   data: Uint8Array,
   byteRange: ByteRange
-): { modified: boolean; additionalBytes: number } {
+): { modified: boolean; additionalBytes: number; tailIsWhitespaceOnly: boolean } {
   const { start2, length2 } = byteRange
   const signedEnd = start2 + length2
   const fileSize = data.length
 
-  const additionalBytes = fileSize - signedEnd
+  const additionalBytes = Math.max(0, fileSize - signedEnd)
+  if (additionalBytes === 0) {
+    return { modified: false, additionalBytes: 0, tailIsWhitespaceOnly: true }
+  }
 
-  // Allow small trailing content (like line endings)
-  const isSignificantModification = additionalBytes > 10
+  const tail = data.slice(signedEnd, fileSize)
+  const tailIsWhitespaceOnly =
+    additionalBytes <= 2 &&
+    Array.from(tail).every((b) => b === 0x0a || b === 0x0d)
 
   return {
-    modified: isSignificantModification,
+    modified: !tailIsWhitespaceOnly,
     additionalBytes,
+    tailIsWhitespaceOnly,
   }
 }
 

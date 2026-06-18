@@ -2,6 +2,15 @@
 
 A browser extension that verifies digital signatures in PDF documents, with built-in support for Taiwan's PKI infrastructure (TWCA, GCA, MOICA root certificates).
 
+> **Trust store status** — `src/trust-store/taiwan-roots.ts` and
+> `src/trust-store/taiwan-tsa-roots.ts` ship with the *structure* of the Taiwan
+> root anchors but **the PEM bodies are intentionally empty**. Until a
+> maintainer pastes verified PEMs (cross-checked against the published
+> SHA-256 fingerprints already listed in those files), every signature
+> reports `Trust: FAIL — trust store is empty`. This is the correct
+> fail-closed behaviour after the trust-mechanism rewrite — the previous
+> "any self-signed root passes" behaviour was a CVE-class security bug.
+
 ## Features
 
 - **Full PDF signature verification** -- parses PDF structure, extracts PKCS#7/CMS signatures, and validates every step of the chain

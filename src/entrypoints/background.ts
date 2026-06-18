@@ -1,6 +1,39 @@
 import { t, setLocale, detectBrowserLocale } from '@/i18n'
 import type { Locale } from '@/i18n'
 
+/**
+ * Service worker keep-alive (audit P3-10).
+ *
+ * MV3 reaps the service worker after ~30s of idle time, which can interrupt
+ * a long verification (OCSP fetch waiting on a slow responder, large CRL
+ * download, etc.). While a verification is in flight, we keep the worker
+ * alive by registering a no-op alarm and tracking active job count.
+ */
+let activeJobs = 0
+const KEEPALIVE_ALARM = 'pdf-verifier-keepalive'
+
+async function startKeepAlive(): Promise<void> {
+  activeJobs++
+  if (activeJobs === 1) {
+    try {
+      await chrome.alarms.create(KEEPALIVE_ALARM, { periodInMinutes: 0.5 })
+    } catch {
+      // alarms permission missing — no-op
+    }
+  }
+}
+
+async function endKeepAlive(): Promise<void> {
+  activeJobs = Math.max(0, activeJobs - 1)
+  if (activeJobs === 0) {
+    try {
+      await chrome.alarms.clear(KEEPALIVE_ALARM)
+    } catch {
+      // ignore
+    }
+  }
+}
+
 export default defineBackground(() => {
   // Initialize locale
   const initLocale = async () => {
@@ -17,7 +50,24 @@ export default defineBackground(() => {
     }
   }
   initLocale()
+
+  // Eagerly load the trust store on startup so the first verification doesn't
+  // pay parsing cost. Warnings (empty store, fingerprint mismatch, etc.) go
+  // to console.warn here so developers see them during dev mode reloads.
+  void (async () => {
+    const { initializeTrustStore, getTrustStoreWarnings } = await import('@/trust-store/trust-manager')
+    await initializeTrustStore()
+    const warnings = getTrustStoreWarnings()
+    if (warnings.length > 0) {
+      console.warn('[PDFtrust] Trust store warnings:')
+      for (const w of warnings) console.warn('  -', w)
+    }
+  })()
+
   console.log('PDF Signature Verifier background script loaded')
+
+  // No-op alarm listener — its existence keeps the SW awake.
+  chrome.alarms.onAlarm.addListener(() => {})
 
   // Handle messages from popup, content scripts, and upload window
   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
@@ -54,6 +104,9 @@ async function handleMessage(
     case 'open-popup':
       return handleOpenPopup()
 
+    case 'get-trust-store-status':
+      return handleGetTrustStoreStatus()
+
     default:
       return { error: `Unknown action: ${message.action}` }
   }
@@ -63,6 +116,7 @@ async function handlePdfUrlVerification(
   url: string,
   fileName: string
 ): Promise<{ result: unknown } | { error: string }> {
+  await startKeepAlive()
   try {
     const response = await fetch(url)
     if (!response.ok) {
@@ -74,6 +128,8 @@ async function handlePdfUrlVerification(
     return { result }
   } catch (error) {
     return { error: error instanceof Error ? error.message : 'Verification failed' }
+  } finally {
+    await endKeepAlive()
   }
 }
 
@@ -123,11 +179,36 @@ async function handlePdfVerification(
   fileName: string,
   options?: Record<string, unknown>
 ): Promise<{ result: unknown } | { error: string }> {
+  await startKeepAlive()
   try {
     const { verifyPdfSignatures } = await import('@/core/verifier')
     const result = await verifyPdfSignatures(new Uint8Array(data), fileName, options)
     return { result }
   } catch (error) {
     return { error: error instanceof Error ? error.message : 'Verification failed' }
+  } finally {
+    await endKeepAlive()
+  }
+}
+
+async function handleGetTrustStoreStatus(): Promise<{
+  isEmpty: boolean
+  isTsaEmpty: boolean
+  warnings: string[]
+  stats: unknown
+}> {
+  const {
+    initializeTrustStore,
+    isTrustStoreEmpty,
+    isTsaTrustStoreEmpty,
+    getTrustStoreWarnings,
+    getTrustStoreStats,
+  } = await import('@/trust-store/trust-manager')
+  await initializeTrustStore()
+  return {
+    isEmpty: isTrustStoreEmpty(),
+    isTsaEmpty: isTsaTrustStoreEmpty(),
+    warnings: getTrustStoreWarnings(),
+    stats: getTrustStoreStats(),
   }
 }

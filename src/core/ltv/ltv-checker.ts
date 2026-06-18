@@ -5,6 +5,7 @@ import type {
   CheckResult,
   LtvInfo,
   CrlInfo,
+  LtvLevel,
 } from '@/types'
 import { createPassedCheck, createFailedCheck } from '@/types'
 import { t } from '@/i18n'
@@ -17,6 +18,14 @@ import {
 export interface LtvCheckResult {
   hasLtv: boolean
   isComplete: boolean
+  /**
+   * PAdES classification per ETSI EN 319 142:
+   *   B-B   — basic, no timestamp, no LTV
+   *   B-T   — signature + valid TST
+   *   B-LT  — B-T + embedded revocation data for the full chain
+   *   B-LTA — B-LT + archive timestamp(s) over the LTV material
+   */
+  level: LtvLevel
   check: CheckResult
   info: LtvInfo
   details: LtvDetails
@@ -38,10 +47,24 @@ export interface LtvDetails {
 /**
  * Check if PDF signature has complete LTV (Long-Term Validation) information
  */
+export interface LtvOptions {
+  /**
+   * Number of DocTimeStamp signatures found in the document AFTER this signature.
+   * Required to detect B-LTA (each archive timestamp counts as a layer).
+   */
+  archiveTimestampCount?: number
+  /**
+   * Whether each archive timestamp itself has LTV data (recursive requirement).
+   * Pass an array of booleans, one per archive TST in chronological order.
+   */
+  archiveTimestampsHaveLtv?: boolean[]
+}
+
 export function checkLtvCompleteness(
   chain: ParsedCertificate[],
   embeddedInfo: EmbeddedRevocationInfo | null,
-  timestampInfo: TimestampInfo | null
+  timestampInfo: TimestampInfo | null,
+  options: LtvOptions = {}
 ): LtvCheckResult {
   const stats = getEmbeddedRevocationStats(embeddedInfo)
   const validityWindow = getRevocationInfoValidity(embeddedInfo)
@@ -49,6 +72,22 @@ export function checkLtvCompleteness(
 
   const hasLtv = stats.hasOcsp || stats.hasCrl
   const hasTimestamp = timestampInfo !== null && timestampInfo.isValid
+
+  // ETSI level classification (audit P2-8).
+  const archiveCount = options.archiveTimestampCount ?? 0
+  const archiveLtv = options.archiveTimestampsHaveLtv ?? []
+  let level: LtvLevel = 'B-B'
+  if (hasTimestamp) {
+    level = 'B-T'
+    if (hasLtv && completeness.complete) {
+      level = 'B-LT'
+      // B-LTA requires at least one archive timestamp covering the LTV
+      // material, and each archive TST must itself have LTV.
+      if (archiveCount > 0 && archiveLtv.every((x) => x)) {
+        level = 'B-LTA'
+      }
+    }
+  }
 
   const details: LtvDetails = {
     hasTimestamp,
@@ -114,6 +153,7 @@ export function checkLtvCompleteness(
   return {
     hasLtv,
     isComplete: completeness.complete && hasTimestamp,
+    level,
     check,
     info,
     details,

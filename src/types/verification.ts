@@ -11,6 +11,27 @@ export interface VerificationResult {
   summaryI18nParams?: I18nParams
 }
 
+export type SignatureType = 'approval' | 'certification' | 'timestamp'
+
+/** PAdES level per ETSI EN 319 142 — informational classification. */
+export type LtvLevel = 'none' | 'B-B' | 'B-T' | 'B-LT' | 'B-LTA'
+
+export interface DocMdpInfo {
+  /** 1 = No changes; 2 = Form fill-in & signatures allowed; 3 = above + annotations. */
+  permissionLevel: 1 | 2 | 3
+  /** From /Reference /DigestMethod */
+  digestMethod?: string
+}
+
+export interface SubsequentChange {
+  /** Index of the later signature that introduced the change. */
+  signatureIndex: number
+  /** Byte range that the change occupies. */
+  byteOffset: number
+  /** True if the later signature's incremental update is consistent with DocMDP. */
+  permittedByDocMdp: boolean | null
+}
+
 export interface SignatureResult {
   index: number
   signerName: string
@@ -18,6 +39,15 @@ export interface SignatureResult {
   reason?: string
   location?: string
   status: VerificationStatus
+
+  /** Signature semantic type per PDF spec. */
+  type?: SignatureType
+  /** When type='certification', the DocMDP permission level. */
+  docMdp?: DocMdpInfo
+  /** PAdES LTV level for THIS signature. */
+  ltvLevel?: LtvLevel
+  /** Incremental updates that happened after this signature, if any. */
+  subsequentChanges?: SubsequentChange[]
 
   checks: {
     integrity: CheckResult
